@@ -150,10 +150,16 @@
     const hoh=hg(s,s.currentHOH);let noms=chooseNominees(s,hoh,week);
     noms=applyCloud(s,hoh,noms,week);
     noms.forEach(n=>n.nominated=true);s.nominees=noms.map(n=>n.id);
+    // The initial target is the least-protected nominee from the HOH's perspective.
+    // Record the target as an ID as well as display text so later strategy checks
+    // can reliably tell whether the real target is already on the block.
     const target=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0];
-    s.intendedTarget=target?displayName(target):null;s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
+    s.intendedTarget=target?displayName(target):null;
+    s.intendedTargetId=target?.id||null;
+    s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
     s.backdoorTargetId=null;
-    if(R()?.planBackdoor){
+    s.nominationStrategy=s.nominationStrategy||null;
+    if(R()?.planBackdoor && (!target || !noms.some(n=>n.id===target.id))){
       const plan=R().planBackdoor(s,hoh,noms);
       if(plan?.use&&plan.target){
         s.backdoorTargetId=plan.target.id;
