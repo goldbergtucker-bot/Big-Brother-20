@@ -3,7 +3,7 @@
  * BB20-inspired custom simulator using the supplied BB24 simulator UI/engine architecture.
  * Competition names, twist timing and formats are based on the real U.S. Big Brother 20 season.
  */
-window.BB24_CONFIG = Object.freeze({
+window.BB20_CONFIG = Object.freeze({
   seasonId:"bb20-custom",
   seasonNumber:20,
   originalYear:2018,
