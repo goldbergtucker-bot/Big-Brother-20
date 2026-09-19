@@ -3,7 +3,7 @@
   const FALLBACK={physical:.35,mental:.30,social:.15,strategic:.20};
   const CAT_LABEL={physical:"Physical",mental:"Mental",social:"Social",strategic:"Strategic",general:"General"};
   function scheduleFor(opts={}){
-    const cfg=window.BB24_CONFIG?.competitionSchedule||[];
+    const cfg=window.BB20_CONFIG?.competitionSchedule||[];
     if(opts.week!=null && opts.type){
       const exact=cfg.find(c=>c.week===opts.week&&c.type===opts.type);
       if(exact)return exact;
