@@ -368,7 +368,7 @@
 
   /**
    * A single voter's eviction pick among 2+ houseguests on the block at once
-   * (BB24 Festie Besties group nominations). Mirrors decideVote's logic but
+   * (multi-nominee blocks). Mirrors decideVote's logic but
    * generalized beyond a fixed pair. Returns the id voted OUT.
    */
   function decideVoteMulti(state, voter, nominees, hoh) {
