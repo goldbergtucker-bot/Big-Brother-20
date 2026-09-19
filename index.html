@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Big Brother 20 — Custom Simulator</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app-shell">
+<header class="topbar"><div class="brand"><div class="brand-mark">BB</div><div><b>BIG BROTHER</b><span>20 · CUSTOM SIMULATOR</span></div></div><div class="top-actions"><button id="backToSetupBtn" class="ghost">Cast Setup</button></div></header>
+<main>
+<section id="setupView">
+  <div class="setup-hero"><div><span class="eyebrow">CUSTOM BRANTSTEELE-STYLE SIMULATOR</span><h1>Build Your BB20 Season</h1><p>Build your custom cast, portraits, ratings, relationships and alliances — then run the full BB20 season, twists included, one event at a time.</p></div><div class="hero-actions"><button id="loadDemoBtn">Load Demo Cast</button><button id="simulateBtn" class="primary">Simulate Season</button></div></div>
+  <section class="settings-panel"><h2>Season Settings</h2><div class="settings-grid"><label>Season Name<input id="seasonName"></label><label>Theme URL<input id="themeUrl" placeholder="https://..."></label><label>Logo URL<input id="logoUrl" placeholder="https://..."></label></div></section>
+  <section class="feed-setup-panel">
+    <div class="feed-setup-heading"><div><span class="eyebrow">OPTIONAL STORY MODE</span><h2>Live Feeds</h2><p>Turn on detailed Thursday-to-Thursday live feeds. When enabled, each day appears as one complete feed page rather than scattered snippets.</p></div><button id="liveFeedsToggle" type="button" class="feed-toggle" aria-pressed="true">Live Feeds: ON</button></div>
+    <div id="liveFeedPromptPanel" class="feed-prompt-panel">
+      <h3>Live Feed Story Prompt</h3><p class="muted-note">These open-response notes are carried into the daily feed generator so conversations can reflect your cast's history, relationships, personalities and recurring storylines.</p>
+      <div class="feed-prompt-grid">
+        <label>Houseguest backstories<textarea id="feedBackstories" rows="6" placeholder="Example: Tucker and Riley met in college. Grace grew up competing in theater... Include as much detail as you want."></textarea></label>
+        <label>Pre-existing relationships & history<textarea id="feedPriorRelationships" rows="6" placeholder="Who knew each other before the game? Former friends, best friends, exes, rivals, family connections, secret pairs, old arguments, etc."></textarea></label>
+        <label>Personalities, habits & speaking styles<textarea id="feedPersonalities" rows="6" placeholder="How does each person act? Quiet, blunt, funny, paranoid, analytical, emotional, sarcastic, late-night talker, early riser, etc."></textarea></label>
+        <label>Conflict, romance & unresolved tension<textarea id="feedConflictsAndRomance" rows="6" placeholder="Showmances, crushes, jealousy, betrayals, rivalries, awkward history, people likely to clash, etc."></textarea></label>
+        <label>Recurring topics, jokes & personal details<textarea id="feedRecurringTopics" rows="6" placeholder="Inside jokes, hobbies, school/work stories, family stories, favorite topics, house routines, catchphrases, running jokes, etc."></textarea></label>
+        <label>Special feed instructions<textarea id="feedInstructions" rows="6" placeholder="Anything else the daily feeds should emphasize: more strategy, more casual conversations, more late-night talks, realistic arguments, detailed campaigning, and so on."></textarea></label>
+      </div>
+    </div>
+  </section>
+  <div class="section-heading"><div><h2>Houseguests</h2><p>16 custom players · portraits · five ratings</p></div><div class="tools"><span id="validity">Cast ready</span><button id="saveBtn">Save</button><button id="exportBtn">Export</button><label class="import">Import<input id="importInput" type="file" accept="application/json"></label><button id="resetBtn" class="danger">Reset</button></div></div>
+  <div id="castGrid" class="cast-grid"></div>
+
+  <section class="section-heading"><div><h2>Starting Relationships</h2><p>Set friendship, trust, loyalty, rivalry, respect and attraction before the simulation.</p></div></section><section class="setup-social-panel"><div id="relationshipsGrid"></div></section>
+
+  <section class="section-heading"><div><h2>Custom Alliances</h2><p>Create alliances that exist from the start of the season. Multiple overlapping alliances are supported.</p></div></section><section class="setup-social-panel"><div id="allianceSetup"></div></section>
+
+  <section class="section-heading"><div><h2>BB20 Twists</h2><p>These run automatically during simulation — no setup needed.</p></div></section>
+  <section class="settings-panel"><div class="settings-grid" style="grid-template-columns:1fr"><p><strong>Backstage Boss (Week 1):</strong> a random houseguest draws safety and sits out all competitions; the HOH's target and two Backstage Pass houseguests may face a Hit the Road duel.</p><p><strong>Festie Besties (Week 3+):</strong> houseguests pair up (or form one trio); nominations, Veto and eviction all run on whole Bestie groups from then on.</p><p><strong>Split House Double Eviction (Week 7):</strong> the house splits into two groups that each run a full HOH → Veto → eviction cycle the same night.</p></div></section>
+</section>
+
+<section id="seasonView" class="hidden">
+  <div class="season-header"><div><span class="eyebrow">SIMULATION</span><h1 id="seasonHeading">Big Brother 24</h1><p id="seasonStatusLine">READY</p></div><div class="season-controls"><button id="resimulateBtn">↻ Simulate Again</button><button id="revealWeekBtn">Reveal Week</button><button id="revealSeasonBtn" class="primary">Reveal Season</button></div></div>
+  <div class="sim-layout">
+    <aside class="left-rail"><div class="rail-title">EVENTS</div><div id="timeline"></div></aside>
+    <section class="main-stage">
+      <article id="eventPanel" class="event-panel"><div class="event-meta"><span id="eventKicker">READY TO SIMULATE</span><span id="eventCounter">0 / 0</span></div><h2 id="eventTitle">Your season is ready</h2><div id="eventBody"></div></article>
+      <div class="navigator"><button id="previousBtn">← Previous</button><button id="nextBtn" class="primary">Next →</button></div>
+      <nav class="view-tabs"><button data-tab="event" class="active">Current Event</button><button data-tab="stats">Season Results</button><button data-tab="weekly-summary">Weekly Summary</button><button data-tab="alliances">Alliances</button></nav>
+      <div id="tabContent" class="tab-content hidden"></div>
+    </section>
+    <aside class="right-rail"><div class="rail-title">MEMORY WALL</div><div id="memoryWall"></div></aside>
+  </div>
+</section>
+</main><div id="toast" class="toast"></div>
+<script src="data/bb20-config.js"></script><script src="engine/game-state.js"></script><script src="engine/competitions.js"></script><script src="engine/relationships.js"></script><script src="engine/season-engine.js"></script><script src="engine/live-feeds.js"></script><script src="app.js?v=20260918-bb20-v1"></script>
+</div></body></html>
+
