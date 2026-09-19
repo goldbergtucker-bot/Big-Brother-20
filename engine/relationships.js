@@ -126,7 +126,51 @@
    * protected unless the HOH is desperate or the alliance is already
    * breaking down.
    */
+  function pairStrategyScore(state, hoh, a, b) {
+    const ra = rel(state, hoh.id, a.id) || {};
+    const rb = rel(state, hoh.id, b.id) || {};
+    const sameAlliance = isAllyOf(state, a.id, b.id) ? 18 : 0;
+    const duoBond = (bondScore(state, a.id, b.id) + bondScore(state, b.id, a.id)) / 2;
+    const threatA = Number(a.ratings?.strategic || 50) * .28 + Number(a.ratings?.physical || 50) * .18 + Number(a.ratings?.mental || 50) * .12;
+    const threatB = Number(b.ratings?.strategic || 50) * .28 + Number(b.ratings?.physical || 50) * .18 + Number(b.ratings?.mental || 50) * .12;
+    const rivalry = (Number(ra.rivalry || 0) + Number(rb.rivalry || 0)) * .22;
+    const duoSignal = (Number(ra.attraction || 0) + Number(rb.attraction || 0)) * .10 + duoBond * .18;
+    return threatA + threatB + rivalry + sameAlliance * .25 + duoSignal - (bondScore(state, hoh.id, a.id) + bondScore(state, hoh.id, b.id)) * .22;
+  }
+
+  /**
+   * HOH nomination logic deliberately creates recognizable BB strategy: most
+   * weeks the HOH protects close allies, but sometimes nominates a visible
+   * duo together or places a pawn next to a target they intend to backdoor.
+   * The choice is strategic rather than a random pair.
+   */
   function pickNominees(state, hoh, eligible, count) {
+    if (count < 2 || eligible.length < 2) return eligible.slice(0, count);
+
+    const pairs = [];
+    for (let i = 0; i < eligible.length; i++) {
+      for (let j = i + 1; j < eligible.length; j++) {
+        const a = eligible[i], b = eligible[j];
+        const score = pairStrategyScore(state, hoh, a, b);
+        pairs.push({ a, b, score });
+      }
+    }
+    pairs.sort((x, y) => y.score - x.score);
+
+    // A strategic HOH occasionally puts an obvious pair on the block together.
+    const duoChance = .18 + Math.max(0, Number(hoh.ratings?.strategic || 50) - 50) / 250;
+    const duo = pairs.find(pair => {
+      const ra = rel(state, hoh.id, pair.a.id) || {};
+      const rb = rel(state, hoh.id, pair.b.id) || {};
+      const pairBond = (bondScore(state, pair.a.id, pair.b.id) + bondScore(state, pair.b.id, pair.a.id)) / 2;
+      const attraction = Math.max(Number(ra.attraction || 0), Number(rb.attraction || 0));
+      return pairBond >= 65 || attraction >= 65 || isAllyOf(state, pair.a.id, pair.b.id);
+    });
+    if (duo && Math.random() < duoChance) {
+      state.nominationStrategy = { type: 'duo', nomineeIds: [duo.a.id, duo.b.id], reason: 'visible duo / allied pair' };
+      return [duo.a, duo.b];
+    }
+
     const scored = eligible.map(hg => {
       const r = rel(state, hoh.id, hg.id) || {};
       const bond = bondScore(state, hoh.id, hg.id);
@@ -134,11 +178,10 @@
       const alliance = isAllyOf(state, hoh.id, hg.id);
       const strategicThreat = Number(hg.ratings?.strategic || 50);
       const compThreat = (Number(hg.ratings?.physical || 50) + Number(hg.ratings?.mental || 50)) / 2;
-      let score = bond * 0.52 + Number(r.respect || 50) * 0.08 - rival * 0.24;
-      score -= strategicThreat * 0.16 + compThreat * 0.08;
-      if (alliance) score += 34 + Number(r.trust || 50) * 0.12 + Number(r.loyalty || 50) * 0.12;
+      let score = bond * .52 + Number(r.respect || 50) * .08 - rival * .24;
+      score -= strategicThreat * .16 + compThreat * .08;
+      if (alliance) score += 34 + Number(r.trust || 50) * .12 + Number(r.loyalty || 50) * .12;
       if (Number(r.friendship || 50) >= 72 && Number(r.trust || 50) >= 65) score += 18;
-      // A weak/socially isolated houseguest is a more believable pawn.
       if (Number(hg.ratings?.social || 50) < 45 && bond >= 48) score += 7;
       score += Math.random() * 24 - 12;
       return { hg, score };
@@ -211,49 +254,45 @@
   function decideVetoUse(state, vetoWinner, hoh, nominees) {
     if (!nominees || !nominees.length) return { use: false };
 
-    // FINAL 4 RULE: the one HouseGuest who is neither HOH nor a nominee
-    // cannot use the Veto to remove a nominee. Doing so would leave only
-    // one nominee on the block. That player is instead the sole voter.
     const activeCount = state.houseguests?.filter(h => h.active).length || 0;
     const isNominee = nominees.some(n => n.id === vetoWinner.id);
     if (activeCount === 4 && vetoWinner.id !== hoh.id && !isNominee) {
       return { use: false, final4SoleVoter: true };
     }
 
-    // If the HOH deliberately planned a backdoor and also wins the POV,
-    // the HOH should use the Veto on one of the initial nominees and name
-    // the backdoor target as the replacement. The old logic immediately
-    // returned { use: false } whenever the HOH won POV, which caused the
-    // simulator to leave the original nominations unchanged.
     if (vetoWinner.id === hoh.id) {
-      // A planned backdoor is an explicit HOH strategy, so winning the POV
-      // does NOT cancel it. The HOH must use the Veto on an initial nominee
-      // so the planned target can become the replacement nominee.
-      if (state.backdoorTargetId && nominees.length) {
-        return { use: true, saveId: nominees[0].id, backdoor: true };
-      }
+      if (state.backdoorTargetId && nominees.length) return { use: true, saveId: nominees[0].id, backdoor: true };
       return { use: false };
     }
 
-    if (isNominee) {
-      // A nominated HouseGuest who wins the Golden Power of Veto always
-      // uses it on themselves. There is no random chance to leave
-      // themselves on the block. This also preserves the correct behavior
-      // for Festie Besties, where the winning nominee represents their
-      // nominated Bestie group.
-      return { use: true, saveId: vetoWinner.id };
+    // A nominee who wins Veto always saves themselves.
+    if (isNominee) return { use: true, saveId: vetoWinner.id };
+
+    const candidates = nominees.map(n => {
+      const r = rel(state, vetoWinner.id, n.id) || {};
+      const bond = bondScore(state, vetoWinner.id, n.id);
+      const alliance = isAllyOf(state, vetoWinner.id, n.id);
+      const relationshipType = String(r.type || '').toLowerCase();
+      const showmance = relationshipType.includes('showmance') || Number(r.attraction || 0) >= 70;
+      const closePair = bond >= 68 || (Number(r.friendship || 0) >= 75 && Number(r.loyalty || 0) >= 70);
+      let score = bond * .55 + Number(r.trust || 50) * .12 + Number(r.loyalty || 50) * .14 + Number(r.friendship || 50) * .08;
+      if (alliance) score += 20;
+      if (showmance) score += 42;
+      else if (closePair) score += 25;
+      score -= Number(r.rivalry || 0) * .40;
+      return { n, score, showmance, closePair };
+    }).sort((a, b) => b.score - a.score);
+
+    const best = candidates[0];
+    // Strong relationships should produce a dependable Veto-use decision.
+    // This prevents a showmance/close ally from inexplicably being left on
+    // the block merely because of a random roll.
+    if (best.showmance || best.closePair || best.score >= 72) {
+      return { use: true, saveId: best.n.id, reason: best.showmance ? 'protects showmance' : 'protects close ally' };
     }
 
-    // Non-nominee winner: use it if they're close with a nominee.
-    const best = nominees
-      .map(n => ({ n, score: bondScore(state, vetoWinner.id, n.id) }))
-      .sort((a, b) => b.score - a.score)[0];
-
-    const allyBoost = isAllyOf(state, vetoWinner.id, best.n.id) ? 18 : 0;
-    const willingness = (best.score + allyBoost - 45) / 55; // roughly -0.8..1
-    if (Math.random() < clamp(willingness, 0.05, 0.85)) {
-      return { use: true, saveId: best.n.id };
-    }
+    const willingness = clamp((best.score - 45) / 55, .05, .80);
+    if (Math.random() < willingness) return { use: true, saveId: best.n.id, reason: 'protects ally' };
     return { use: false };
   }
 
