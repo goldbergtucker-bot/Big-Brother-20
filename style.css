@@ -140,3 +140,5 @@
   .final-placement-row.row-1,.final-placement-row.row-2,.final-placement-row.row-3{gap:10px}
   .jury-finalists-screen .player-card{width:130px}.jury-finalists-screen .portrait-box{height:165px}
 }
+.opening-immunity-panel .wildcard-competitors{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px;align-items:start}
+@media(max-width:900px){.opening-immunity-panel .wildcard-competitors{grid-template-columns:repeat(2,minmax(0,1fr))}}
