@@ -5,7 +5,7 @@
  * are implemented as isolated season mechanics.
  */
 (function(){
-  const C=()=>window.Competitions, R=()=>window.RelEngine, CFG=()=>window.BB24_CONFIG;
+  const C=()=>window.Competitions, R=()=>window.RelEngine, CFG=()=>window.BB20_CONFIG;
   const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
   const living=s=>s.houseguests.filter(h=>h.active);
   const shuffle=a=>{a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;};
@@ -64,6 +64,7 @@
     const p2=C().runCompetition(g2,{week:1,type:"immunity-2"});
     log(s,{week:1,phase:"premiere",type:"immunity-1",winnerId:p1.winner.id,participants:g1.map(x=>x.id),competition:p1,title:`Premiere Immunity — ${p1.label}`,lines:[`${displayName(p1.winner)} wins the first preliminary immunity competition and advances to the final round.`]});
     log(s,{week:1,phase:"premiere",type:"immunity-2",winnerId:p2.winner.id,participants:g2.map(x=>x.id),competition:p2,title:`Premiere Immunity — ${p2.label}`,lines:[`${displayName(p2.winner)} wins the second preliminary immunity competition and advances to the final round.`]});
+    openingPunishments(s,p1,p2);
     const final=C().runCompetition([p1.winner,p2.winner],{week:1,type:"immunity-final"});
     log(s,{week:1,phase:"premiere",type:"immunity-final",winnerId:final.winner.id,participants:[p1.winner.id,p2.winner.id],competition:final,title:`Premiere Immunity — ${final.label}`,lines:[`${displayName(final.winner)} wins the final immunity competition and may protect two entire move-in groups.`]});
     const groups=shuffle(s.teams.slice()).slice(0,2);
@@ -72,14 +73,36 @@
     log(s,{week:1,phase:"premiere",type:"opening-immunity",winnerId:final.winner.id,participants:all.map(x=>x.id),title:"Premiere Immunity — Two Groups Protected",lines:[`${displayName(final.winner)} grants immunity to ${groups.map(g=>g.name).join(" and ")}.`,`The remaining eight houseguests are eligible for the first HOH and first eviction.`]});
   }
 
+  function appStoreRound(s,week){
+    if(week<1||week>3)return;
+    const app=s.bb20Twists.apps=s.bb20Twists.apps||{receivedIds:[],earlyEvictions:0,bonusLifeUsed:false,cloudUsed:false,identityTheftUsed:false};
+    app.receivedIds=Array.isArray(app.receivedIds)?app.receivedIds:[];
+    const eligible=living(s).filter(h=>!app.receivedIds.includes(h.id));
+    if(eligible.length<2)return;
+    // Use a stable but non-deterministic public-vote-style selection based on
+    // social/general ratings, with a little noise so custom casts do not always
+    // produce the same App Store recipients.
+    const scored=eligible.map(h=>({h,score:(h.ratings.social||50)*.55+(h.ratings.general||50)*.45+Math.random()*30})).sort((a,b)=>b.score-a.score);
+    const top=scored[0].h, least=scored[scored.length-1].h;
+    const powers=["Bonus Life","The Cloud","Identity Theft"], craps=["Hamazon","Yell!","Read It!"];
+    const power=powers[week-1],crap=craps[week-1];
+    app.receivedIds.push(top.id,least.id);
+    if(power==="Bonus Life")app.bonusLifeHolderId=top.id;
+    if(power==="The Cloud")app.cloudHolderId=top.id;
+    if(power==="Identity Theft")app.identityTheftHolderId=top.id;
+    if(crap==="Hamazon")app.crapPunishments={...(app.crapPunishments||{}),[least.id]:{name:crap,week,description:"The Houseguest receives the Hamazon punishment and must deal with the delivered ham/food punishment for the week."}};
+    if(crap==="Yell!")app.crapPunishments={...(app.crapPunishments||{}),[least.id]:{name:crap,week,description:"An angry reviewer repeatedly gives the Houseguest loud negative feedback for 24 hours."}};
+    if(crap==="Read It!")app.crapPunishments={...(app.crapPunishments||{}),[least.id]:{name:crap,week,description:"The Houseguest must wear a costume and read Hamlet in a Shakespearean style until the punishment is completed."}};
+    log(s,{week,phase:"standard",type:"app-store",winnerId:top.id,participants:[top.id,least.id],data:{powerApp:power,crapApp:crap,crapId:least.id},title:`BB App Store — Week ${week}`,lines:[`${displayName(top)} is the week's Top Trending Houseguest and receives the ${power} Power App.`,`${displayName(least)} is the week's Least Trending Houseguest and receives the ${crap} Crap App punishment.`,`Neither Houseguest is eligible for another BB App Store result in a later week.`]});
+  }
+
   function initializeApps(s){
-    const eligible=living(s).filter(h=>!h.safe);
-    const bonus=pick(eligible), cloud=pick(eligible.filter(h=>h.id!==bonus?.id))||bonus, identity=pick(eligible.filter(h=>h.id!==bonus?.id&&h.id!==cloud?.id))||cloud;
-    s.bb20Twists.apps={bonusLifeHolderId:bonus?.id||null,cloudHolderId:cloud?.id||null,identityTheftHolderId:identity?.id||null,
-      bonusLifeUsed:false,cloudUsed:false,identityTheftUsed:false,earlyEvictions:0};
-    if(bonus)log(s,{week:1,phase:"premiere",type:"power-app",winnerId:bonus.id,title:"BB App Store — Bonus Life",lines:[`${displayName(bonus)} receives the Bonus Life Power App. It can protect its holder from an early eviction.`]});
-    if(cloud)log(s,{week:1,phase:"premiere",type:"power-app",winnerId:cloud.id,title:"BB App Store — The Cloud",lines:[`${displayName(cloud)} receives The Cloud, a one-time nomination safety power during its active period.`]});
-    if(identity)log(s,{week:1,phase:"premiere",type:"power-app",winnerId:identity.id,title:"BB App Store — Identity Theft",lines:[`${displayName(identity)} receives Identity Theft, represented as a limited-use secret strategic power.`]});
+    s.bb20Twists.apps={receivedIds:[],bonusLifeHolderId:null,cloudHolderId:null,identityTheftHolderId:null,bonusLifeUsed:false,cloudUsed:false,identityTheftUsed:false,earlyEvictions:0,crapPunishments:{}};
+  }
+
+  function openingPunishments(s,p1,p2){
+    const losers=[p1?.ranking?.[p1.ranking.length-1]?.id,p2?.ranking?.[p2.ranking.length-1]?.id].filter(Boolean);
+    const punishments=["Pinwheel of Doom","Robot"]; losers.forEach((id,i)=>{const h=hg(s,id);if(!h)return;const punishment=punishments[i]||"Week 1 Punishment";s.bb20Twists.openingPunishments=s.bb20Twists.openingPunishments||[];s.bb20Twists.openingPunishments.push({houseguestId:id,punishment});log(s,{week:1,phase:"premiere",type:"punishment",winnerId:id,participants:[id],title:`Week 1 Punishment — ${punishment}`,lines:[`${displayName(h)} receives the ${punishment} punishment from the Week 1 premiere competition.`]});});
   }
 
   function eligibleHOH(s,extra=[]){
@@ -216,14 +239,15 @@
       const duelists=[evicted,...living(s).filter(h=>h.id!==evicted.id)].slice(0,2);
       const comp=C().runCompetition(duelists,{week,type:"battleback"});
       const winner=comp.winner,loser=duelists.find(h=>h.id!==winner.id);
-      if(winner.id===evicted.id){evicted.active=true;evicted.evicted=false;evicted.placement=null;evicted.juryMember=false;s.evicted=s.evicted.filter(id=>id!==evicted.id);s.jury=s.jury.filter(id=>id!==evicted.id);s.season.evictionCount--;log(s,{week,phase:s.phase,type:"bonus-life-return",winnerId:evicted.id,competition:comp,title:"Bonus Life — Return Challenge",lines:[`${displayName(evicted)} wins the Bonus Life return challenge and returns to the game.`]});return null;}
+      if(winner.id===evicted.id){evicted.active=true;evicted.evicted=false;evicted.placement=null;evicted.juryMember=false;s.evicted=s.evicted.filter(id=>id!==evicted.id);s.jury=s.jury.filter(id=>id!==evicted.id);s.season.evictionCount--;s.bb20Twists.bonusLifeReturnOccurred=true;log(s,{week,phase:s.phase,type:"bonus-life-return",winnerId:evicted.id,competition:comp,title:"Bonus Life — Return Challenge",lines:[`${displayName(evicted)} wins the Bonus Life return challenge and returns to the game.`]});return null;}
       log(s,{week,phase:s.phase,type:"bonus-life-return",winnerId:winner.id,evictedId:evicted.id,competition:comp,title:"Bonus Life — Return Challenge",lines:[`${displayName(evicted)} loses the Bonus Life return challenge and remains evicted.`]});
     }
     return evicted;
   }
 
   function runStandardWeek(s,week){
-    s.week=week;s.phase="standard";s.houseguests.forEach(h=>{h.safe=false;h.nominated=false;});
+    s.week=week;
+    if(week>=2&&week<=3)appStoreRound(s,week);s.phase="standard";s.houseguests.forEach(h=>{h.safe=false;h.nominated=false;});
     const pool=eligibleHOH(s);if(pool.length<1)return null;
     const comp=C().runCompetition(pool,{week,type:"hoh"}),hoh=comp.winner;
     s.currentHOH=hoh.id;s._priorHohIds=[hoh.id];
@@ -239,6 +263,10 @@
 
   function runDoubleEviction(s,week){
     s.week=week;s.phase="double-eviction";
+    if(s.bb20Twists.bonusLifeReturnOccurred){
+      log(s,{week,phase:s.phase,type:"double-eviction-cancelled",title:"Double Eviction Cancelled — Bonus Life Return",lines:["A Houseguest previously returned to the game through the Bonus Life return challenge.","Because the Bonus Life was successfully used to return a Houseguest, the jury Double Eviction is cancelled.","Week 11 proceeds with only the normal eviction cycle."]});
+      return runStandardWeek(s,week);
+    }
     log(s,{week,phase:s.phase,type:"double-eviction-start",title:"Double Eviction Begins",lines:["The house must complete two full eviction cycles during the same week."]});
     runStandardWeek(s,week);
     if(living(s).length<=3)return;
@@ -295,7 +323,7 @@
   function simulateSeason(s,config){
     ensureState(s);s.history=[];s.jury=[];s.evicted=[];s.evictionVotes=[];s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.currentHOH=null;s.finale=null;s._priorHohIds=[];s.bb20Twists={};s.season.evictionCount=0;s.season.castSize=s.houseguests.length;
     s.houseguests.forEach(h=>{h.active=true;h.safe=false;h.nominated=false;h.juryMember=false;h.evicted=false;h.placement=null;});
-    randomizeRelationships(s);openingImmunity(s);initializeApps(s);
+    randomizeRelationships(s);openingImmunity(s);initializeApps(s);appStoreRound(s,1);
     const firstPool=eligibleHOH(s);if(firstPool.length){
       const comp=C().runCompetition(firstPool,{week:1,type:"hoh"}),hoh=comp.winner;s.currentHOH=hoh.id;s._priorHohIds=[hoh.id];
       log(s,{week:1,phase:"standard",type:"hoh",winnerId:hoh.id,participants:firstPool.map(p=>p.id),competition:comp,title:`Head of Household — ${comp.label}`,lines:[`${displayName(hoh)} wins the first HOH of the season.`]});
