@@ -157,17 +157,27 @@
     }
     pairs.sort((x, y) => y.score - x.score);
 
-    // A strategic HOH occasionally puts an obvious pair on the block together.
-    const duoChance = .18 + Math.max(0, Number(hoh.ratings?.strategic || 50) - 50) / 250;
+    // A duo nomination is allowed for a genuine showmance/very close pair,
+    // but sharing an alliance is NOT by itself a reason to nominate the pair.
+    // This prevents the strategy engine from manufacturing alliance-on-alliance
+    // conflict just because two players happen to share an alliance.
+    const duoChance = .16 + Math.max(0, Number(hoh.ratings?.strategic || 50) - 50) / 260;
     const duo = pairs.find(pair => {
       const ra = rel(state, hoh.id, pair.a.id) || {};
       const rb = rel(state, hoh.id, pair.b.id) || {};
+      const ab = rel(state, pair.a.id, pair.b.id) || {};
+      const ba = rel(state, pair.b.id, pair.a.id) || {};
       const pairBond = (bondScore(state, pair.a.id, pair.b.id) + bondScore(state, pair.b.id, pair.a.id)) / 2;
-      const attraction = Math.max(Number(ra.attraction || 0), Number(rb.attraction || 0));
-      return pairBond >= 65 || attraction >= 65 || isAllyOf(state, pair.a.id, pair.b.id);
+      const attraction = Math.max(Number(ra.attraction || 0), Number(rb.attraction || 0), Number(ab.attraction || 0), Number(ba.attraction || 0));
+      const typeA = String(ab.type || '').toLowerCase();
+      const typeB = String(ba.type || '').toLowerCase();
+      const explicitDuo = typeA.includes('showmance') || typeB.includes('showmance') ||
+        typeA.includes('secret pair') || typeB.includes('secret pair');
+      const genuineClosePair = pairBond >= 78 || attraction >= 78;
+      return explicitDuo || genuineClosePair;
     });
     if (duo && Math.random() < duoChance) {
-      state.nominationStrategy = { type: 'duo', nomineeIds: [duo.a.id, duo.b.id], reason: 'visible duo / allied pair' };
+      state.nominationStrategy = { type: 'duo', nomineeIds: [duo.a.id, duo.b.id], reason: 'visible close duo / showmance' };
       return [duo.a, duo.b];
     }
 
@@ -180,10 +190,18 @@
       const compThreat = (Number(hg.ratings?.physical || 50) + Number(hg.ratings?.mental || 50)) / 2;
       let score = bond * .52 + Number(r.respect || 50) * .08 - rival * .24;
       score -= strategicThreat * .16 + compThreat * .08;
-      if (alliance) score += 34 + Number(r.trust || 50) * .12 + Number(r.loyalty || 50) * .12;
+
+      // Strong allies are protected by default. An alliance member should only
+      // become a normal nominee when the relationship itself shows a serious
+      // breakdown (very low trust/loyalty plus meaningful rivalry).
+      if (alliance) {
+        const trust = Number(r.trust || 50), loyalty = Number(r.loyalty || 50);
+        const allianceBreakdown = rival >= 72 && trust <= 38 && loyalty <= 38;
+        score += allianceBreakdown ? 2 : 42 + trust * .14 + loyalty * .14;
+      }
       if (Number(r.friendship || 50) >= 72 && Number(r.trust || 50) >= 65) score += 18;
       if (Number(hg.ratings?.social || 50) < 45 && bond >= 48) score += 7;
-      score += Math.random() * 24 - 12;
+      score += Math.random() * 16 - 8;
       return { hg, score };
     });
     scored.sort((a, b) => a.score - b.score);
@@ -197,29 +215,50 @@
    */
   function planBackdoor(state, hoh, nominees) {
     const nomineeIds = new Set(nominees.map(n => n.id));
-    const candidates = livingHouseguests(state).filter(hg => hg.id !== hoh.id && !nomineeIds.has(hg.id) && !hg.safe);
+    const candidates = livingHouseguests(state).filter(hg => h.id !== hoh.id && !nomineeIds.has(hg.id) && !hg.safe);
     if (!candidates.length) return { use: false, target: null, reason: "No eligible backdoor target" };
+
+    // A backdoor is unnecessary when the HOH's actual initial target is already
+    // on the block. The engine must not invent a second target simply because
+    // the Veto phase exists.
+    const initialTarget = nominees.slice().sort((a, b) => bondScore(state, hoh.id, a.id) - bondScore(state, hoh.id, b.id))[0] || null;
+    if (initialTarget) {
+      return { use: false, target: null, reason: "Initial target is already nominated" };
+    }
 
     const ranked = candidates.map(target => {
       const r = rel(state, hoh.id, target.id) || {};
       const bond = bondScore(state, hoh.id, target.id);
-      const allianceOpposition = isAllyOf(state, hoh.id, target.id) ? -32 : 16;
+      const sameAlliance = isAllyOf(state, hoh.id, target.id);
+      const trust = Number(r.trust || 50), loyalty = Number(r.loyalty || 50), rivalry = Number(r.rivalry || 0);
+      const allianceBreakdown = sameAlliance && rivalry >= 78 && trust <= 30 && loyalty <= 30;
+
+      // Alliance members are excluded from ordinary backdoor planning. The
+      // only exception is an unmistakable alliance breakdown; even then the
+      // event remains rare rather than automatic.
+      if (sameAlliance && !allianceBreakdown) return { target, score: -Infinity, blockedAlly: true };
+
       const targetThreat = Number(target.ratings?.strategic || 50) * 0.42 + Number(target.ratings?.physical || 50) * 0.20 + Number(target.ratings?.mental || 50) * 0.14 + Number(target.ratings?.social || 50) * 0.08;
-      const rivalry = Number(r.rivalry || 0) * 0.30;
+      const rivalryScore = rivalry * 0.30;
       const isolation = (100 - Number(r.friendship || 50)) * 0.10;
-      const score = targetThreat + rivalry + isolation - bond * 0.25 + allianceOpposition + (Math.random() * 10 - 5);
-      return { target, score };
-    }).sort((a,b)=>b.score-a.score);
+      const outsideAllianceBonus = sameAlliance ? -18 : 18;
+      const breakdownBonus = allianceBreakdown ? 10 : 0;
+      const score = targetThreat + rivalryScore + isolation - bond * 0.25 + outsideAllianceBonus + breakdownBonus + (Math.random() * 6 - 3);
+      return { target, score, blockedAlly: false, allianceBreakdown };
+    }).filter(x => Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
 
     const best = ranked[0];
+    if (!best) return { use: false, target: null, reason: "No strategically appropriate backdoor target" };
+
     const hohStrategic = Number(hoh.ratings?.strategic || 50);
-    const threshold = 58 - (hohStrategic - 50) * 0.16;
-    const use = best.score >= threshold && Math.random() < (0.28 + Math.max(0, hohStrategic - 45) / 180);
+    const threshold = 64 - (hohStrategic - 50) * 0.12;
+    const baseChance = 0.20 + Math.max(0, hohStrategic - 50) / 260;
+    const use = best.score >= threshold && Math.random() < baseChance;
     if (!use) return { use: false, target: null, reason: "HOH chooses not to pursue a backdoor" };
 
     let reason = "major strategic threat";
     const r = rel(state, hoh.id, best.target.id) || {};
-    if (Number(r.rivalry || 0) >= 55) reason = "personal rivalry";
+    if (Number(r.rivalry || 0) >= 60) reason = "personal rivalry";
     else if (!isAllyOf(state, hoh.id, best.target.id) && Number(best.target.ratings?.strategic || 50) >= 70) reason = "opposing strategic threat";
     else if (Number(best.target.ratings?.physical || 50) >= 75) reason = "competition threat";
     return { use: true, target: best.target, reason };
@@ -247,6 +286,16 @@
   function pickReplacement(state, hoh, eligible, avoidIds) {
     const pool = eligible.filter(hg => !avoidIds.includes(hg.id));
     if (!pool.length) return null;
+
+    // If a genuine backdoor was planned, the named target is the replacement
+    // whenever that target is still eligible. Do not substitute a random ally
+    // or pawn and silently defeat the backdoor plan.
+    const plannedId = state.backdoorTargetId;
+    if (plannedId) {
+      const planned = pool.find(hg => hg.id === plannedId);
+      if (planned && planned.id !== hoh.id && !planned.safe) return planned;
+    }
+
     return pickNominees(state, hoh, pool, 1)[0];
   }
 
