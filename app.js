@@ -15,7 +15,7 @@
   const STORAGE_KEY = "bb20CustomSimulatorV1";
   const LEGACY_STORAGE_KEYS = [];
   const REVEAL_KEY = "bb20CustomSimulatorV1Index";
-  let state = GameState.createInitialState(BB24_CONFIG);
+  let state = GameState.createInitialState(BB20_CONFIG);
   let history = [];
   let pointer = -1;
   let activeTab = "event";
@@ -85,11 +85,11 @@
   }
 
   function competitionCard(entry) {
-    // Always resolve the official competition directly from the BB24 schedule
+    // Always resolve the official competition directly from the BB20 schedule
     // as a fallback. This makes the description independent of which event
     // renderer created the history record.
     const c = entry.competition || {};
-    const official = BB24_CONFIG.competitionSchedule?.find(x => Number(x.week) === Number(entry.week) && x.type === entry.type);
+    const official = BB20_CONFIG.competitionSchedule?.find(x => Number(x.week) === Number(entry.week) && x.type === entry.type);
     const nameValue = c.name || c.label || official?.name;
     if(!nameValue) return "";
     const description = c.description || official?.description || "";
@@ -165,6 +165,16 @@
     // beneath the card, rather than the full POV field.
     let body = competitionCard(entry);
     if (["nominations","pov-players","veto-ceremony"].includes(entry.type)) body += targetPanel(d, view);
+    if (entry.type === "app-store") {
+      const top=byId(view,d.winnerId), crap=byId(view,d.crapId);
+      body += `<section class="wildcard-panel app-store-panel"><div class="wildcard-heading"><span class="ceremony-label">BB APP STORE — WEEK ${esc(entry.week)}</span><p>One Houseguest receives the Power App and a different Houseguest receives the Crap App punishment. App Store recipients are removed from eligibility for future rounds.</p></div><div class="wildcard-competitors"><div class="wildcard-team">${top?card(top,`TOP TRENDING — ${d.powerApp||"POWER APP"}`):""}</div><div class="wildcard-team">${crap?card(crap,`LEAST TRENDING — ${d.crapApp||"CRAP APP"}`):""}</div></div></section>`;
+      return body;
+    }
+    if (entry.type === "punishment") {
+      const h=byId(view,d.winnerId);
+      body += `<section class="wildcard-panel"><div class="wildcard-heading"><span class="ceremony-label">WEEK 1 PUNISHMENT</span><p>The premiere competition punishment is shown as its own event so the recipient is visible in the Week 1 timeline.</p></div>${h?`<div class="wildcard-result">${card(h,entry.title.replace("Week 1 Punishment — ",""))}</div>`:""}</section>`;
+      return body;
+    }
     if (entry.type === "backstage-boss") {
       const boss = byId(view, d.winnerId);
       body += `<section class="wildcard-panel">
@@ -491,9 +501,9 @@
     if(missing.length){toastMsg("Every houseguest needs a first and last name.");return;}
     syncLiveFeedSetupToState();
     const cast=JSON.parse(JSON.stringify(state));
-    state=GameState.createInitialState(BB24_CONFIG);
+    state=GameState.createInitialState(BB20_CONFIG);
     state.season={...state.season,...cast.season,liveFeedProfile:{...state.season.liveFeedProfile,...(cast.season?.liveFeedProfile||{})}};state.houseguests=cast.houseguests.map(h=>({...h,displayName:String(h.displayName||h.firstName||"").trim()||h.firstName||"",ratings:{general:50,physical:50,mental:50,social:50,strategic:50,...(h.ratings||{})}}));state.teams=cast.teams;state.relationships=cast.relationships;state.alliances=cast.alliances||[];
-    SeasonEngine.simulateSeason(state,BB24_CONFIG);
+    SeasonEngine.simulateSeason(state,BB20_CONFIG);
     history=state.history||[];pointer=-1;localStorage.setItem(REVEAL_KEY,"-1");
     setupView.classList.add("hidden");seasonView.classList.remove("hidden");updateSeasonUI();
   }
@@ -501,7 +511,7 @@
 
   function ratingControl(h,k){return `<label><span class="rating-label"><span>${esc(k)}</span><b>${h.ratings[k]}</b></span><input type="range" min="0" max="100" value="${h.ratings[k]}" data-id="${h.id}" data-rating="${k}"></label>`;}
   function renderCast(){
-    castGrid.innerHTML=state.houseguests.map(h=>`<article class="cast-card"><div class="setup-portrait">${portrait(h,"setup-img")}</div><div class="cast-body"><div class="cast-number">HOUSEGUEST ${String(h.slot).padStart(2,"0")}</div><div class="cast-name">${esc(name(h))}</div><label>First Name<input data-id="${h.id}" data-field="firstName" value="${esc(h.firstName)}"></label><label>Last Name<input data-id="${h.id}" data-field="lastName" value="${esc(h.lastName)}"></label><label>Display Name<input data-id="${h.id}" data-field="displayName" value="${esc(h.displayName||h.firstName||"")}" placeholder="First name or nickname"></label><label>Gender<select data-id="${h.id}" data-field="gender"><option value="" ${!h.gender?"selected":""}>Not specified</option><option value="male" ${h.gender==="male"?"selected":""}>Male</option><option value="female" ${h.gender==="female"?"selected":""}>Female</option></select></label><label>Portrait URL<input data-id="${h.id}" data-field="portraitUrl" value="${esc(h.portraitUrl)}" placeholder="https://..."></label><div class="portrait-tools"><label class="upload-portrait">Upload Picture<input type="file" accept="image/*" data-id="${h.id}" data-portrait-upload></label>${h.portraitUrl?`<button type="button" class="clear-portrait" data-clear-portrait="${h.id}">Remove Picture</button>`:""}</div><small class="portrait-help">Use a URL or upload a JPG, PNG, WEBP, or GIF. Uploaded pictures are saved with the cast.</small><div class="rating-grid">${BB24_CONFIG.ratingKeys.map(k=>ratingControl(h,k)).join("")}</div></div></article>`).join("");
+    castGrid.innerHTML=state.houseguests.map(h=>`<article class="cast-card"><div class="setup-portrait">${portrait(h,"setup-img")}</div><div class="cast-body"><div class="cast-number">HOUSEGUEST ${String(h.slot).padStart(2,"0")}</div><div class="cast-name">${esc(name(h))}</div><label>First Name<input data-id="${h.id}" data-field="firstName" value="${esc(h.firstName)}"></label><label>Last Name<input data-id="${h.id}" data-field="lastName" value="${esc(h.lastName)}"></label><label>Display Name<input data-id="${h.id}" data-field="displayName" value="${esc(h.displayName||h.firstName||"")}" placeholder="First name or nickname"></label><label>Gender<select data-id="${h.id}" data-field="gender"><option value="" ${!h.gender?"selected":""}>Not specified</option><option value="male" ${h.gender==="male"?"selected":""}>Male</option><option value="female" ${h.gender==="female"?"selected":""}>Female</option></select></label><label>Portrait URL<input data-id="${h.id}" data-field="portraitUrl" value="${esc(h.portraitUrl)}" placeholder="https://..."></label><div class="portrait-tools"><label class="upload-portrait">Upload Picture<input type="file" accept="image/*" data-id="${h.id}" data-portrait-upload></label>${h.portraitUrl?`<button type="button" class="clear-portrait" data-clear-portrait="${h.id}">Remove Picture</button>`:""}</div><small class="portrait-help">Use a URL or upload a JPG, PNG, WEBP, or GIF. Uploaded pictures are saved with the cast.</small><div class="rating-grid">${BB20_CONFIG.ratingKeys.map(k=>ratingControl(h,k)).join("")}</div></div></article>`).join("");
   }
   function teamOptions(){return state.houseguests.map(h=>`<option value="${h.id}">${esc(displayName(h))}</option>`).join("");}
 
@@ -579,7 +589,7 @@
   }
   function refreshSetup(){renderCast();renderRelationships();renderAlliancesSetup();renderLiveFeedSetup();validate();$("seasonName").value=state.season.name;$("themeUrl").value=state.season.themeUrl||"";$("logoUrl").value=state.season.logoUrl||"";}
   function validate(){const ok=state.houseguests.every(h=>h.firstName.trim()&&h.lastName.trim());validity.textContent=ok?"Cast ready":"Names required";validity.classList.toggle("invalid",!ok);}
-  function loadDemo(){state=GameState.createInitialState(BB24_CONFIG);state.season.name="Big Brother 20 — Custom Demo";state.houseguests.forEach((h,i)=>{[h.firstName,h.lastName]=demoNames[i];h.displayName=h.firstName;h.ratings.general=45+(i*7)%45;h.ratings.physical=40+(i*11)%55;h.ratings.mental=42+(i*13)%53;h.ratings.social=45+(i*9)%50;h.ratings.strategic=40+(i*17)%58;});refreshSetup();toastMsg("Demo cast loaded.");}
+  function loadDemo(){state=GameState.createInitialState(BB20_CONFIG);state.season.name="Big Brother 20 — Custom Demo";state.houseguests.forEach((h,i)=>{[h.firstName,h.lastName]=demoNames[i];h.displayName=h.firstName;h.ratings.general=45+(i*7)%45;h.ratings.physical=40+(i*11)%55;h.ratings.mental=42+(i*13)%53;h.ratings.social=45+(i*9)%50;h.ratings.strategic=40+(i*17)%58;});refreshSetup();toastMsg("Demo cast loaded.");}
   function refreshSetupPortrait(h){const card=castGrid.querySelector(`.cast-card input[data-id="${h.id}"]`)?.closest('.cast-card');const box=card?.querySelector('.setup-portrait');if(box)box.innerHTML=portrait(h,"setup-img");const tools=card?.querySelector('.portrait-tools');if(tools)tools.innerHTML=`${h.portraitUrl?`<button type="button" class="clear-portrait" data-clear-portrait="${h.id}">Remove Picture</button>`:""}`;}
   function handleCastEdit(e){
     const el=e.target;
@@ -616,7 +626,7 @@
   $("seasonName").addEventListener("input",e=>state.season.name=e.target.value);$("themeUrl").addEventListener("input",e=>state.season.themeUrl=e.target.value);$("logoUrl").addEventListener("input",e=>state.season.logoUrl=e.target.value);
   liveFeedsToggle?.addEventListener("click",()=>{ensureFeedSettings();state.season.liveFeedsEnabled=!state.season.liveFeedsEnabled;renderLiveFeedSetup();toastMsg(state.season.liveFeedsEnabled?"Detailed live feeds enabled.":"Live feeds disabled for this season.");});
   ["feedBackstories","feedPriorRelationships","feedPersonalities","feedConflictsAndRomance","feedRecurringTopics","feedInstructions"].forEach(id=>$(id)?.addEventListener("input",syncLiveFeedSetupToState));
-  $("loadDemoBtn").onclick=loadDemo;$("resetBtn").onclick=()=>{if(confirm("Reset the entire cast?")){state=GameState.createInitialState(BB24_CONFIG);refreshSetup();}};
+  $("loadDemoBtn").onclick=loadDemo;$("resetBtn").onclick=()=>{if(confirm("Reset the entire cast?")){state=GameState.createInitialState(BB20_CONFIG);refreshSetup();}};
   $("saveBtn").onclick=()=>{localStorage.setItem(STORAGE_KEY,JSON.stringify(state));toastMsg("Cast, relationships and alliances saved.");};
   $("exportBtn").onclick=()=>{const b=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(b);a.download="bb20-custom-season.json";a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000);};
   $("importInput").onchange=async e=>{try{const x=JSON.parse(await e.target.files[0].text());if(!x.houseguests||x.houseguests.length!==16)throw Error("Invalid 16-player cast");x.relationships=x.relationships||{};Object.values(x.relationships).forEach(row=>Object.values(row||{}).forEach(r=>{if(r&&!r.type)r.type="Unspecified";}));x.alliances=(x.alliances||[]).map(a=>({...a,type:a.type||"Custom"}));x.season=x.season||{};if(typeof x.season.liveFeedsEnabled!=="boolean")x.season.liveFeedsEnabled=true;x.season.liveFeedProfile={backstories:"",priorRelationships:"",personalities:"",conflictsAndRomance:"",recurringTopics:"",feedInstructions:"",...(x.season.liveFeedProfile||{})};x.houseguests.forEach(h=>{h.displayName=String(h.displayName||h.firstName||"").trim()||h.firstName||"";});state=x;refreshSetup();toastMsg("Season imported.");}catch(err){alert("Import failed: "+err.message)}e.target.value="";};
