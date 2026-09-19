@@ -153,12 +153,33 @@
     // The initial target is the least-protected nominee from the HOH's perspective.
     // Record the target as an ID as well as display text so later strategy checks
     // can reliably tell whether the real target is already on the block.
+    // Defensive cleanup: if the nomination strategy somehow produced an HOH
+    // ally while two or more eligible non-allies existed, replace that ally
+    // before recording the ceremony. This prevents downstream code from ever
+    // treating a protected ally as an intentional target.
+    const isProtectedAlly = h => {
+      if (!R()?.isAllyOf || !R().isAllyOf(s, hoh.id, h.id)) return false;
+      const r = s.relationships?.[hoh.id]?.[h.id] || {};
+      return !(Number(r.rivalry || 0) >= 78 && Number(r.trust || 50) <= 30 && Number(r.loyalty || 50) <= 30);
+    };
+    const availableNonAllies = living(s).filter(h => h.id !== hoh.id && !h.safe && !isProtectedAlly(h) && !noms.some(n => n.id === h.id));
+    if (availableNonAllies.length) {
+      for (let i = 0; i < noms.length; i++) {
+        if (!isProtectedAlly(noms[i])) continue;
+        const replacement = availableNonAllies.shift();
+        if (replacement) {
+          noms[i].nominated = false;
+          noms[i] = replacement;
+          replacement.nominated = true;
+        }
+      }
+    }
     const target=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0];
     s.intendedTarget=target?displayName(target):null;
     s.intendedTargetId=target?.id||null;
     s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
     s.backdoorTargetId=null;
-    s.nominationStrategy=s.nominationStrategy||null;
+    s.nominationStrategy=null;
     if(R()?.planBackdoor && (!target || !noms.some(n=>n.id===target.id))){
       const plan=R().planBackdoor(s,hoh,noms);
       if(plan?.use&&plan.target){
@@ -214,7 +235,15 @@
       removed=noms.slice().sort((a,b)=>relationshipScore(s,hacker,a)-relationshipScore(s,hacker,b))[0];
       removed.nominated=false;
       const replPool=others.filter(p=>p.id!==hacker.id&&!p.safe);
-      replacement=pick(replPool);
+      // The H@cker is also a player making a strategic nomination. Do not let
+      // the anonymous replacement randomly land on the H@cker's own ally when
+      // another eligible houseguest is available.
+      const nonAllyPool=replPool.filter(p=>{
+        if(!R()?.isAllyOf || !R().isAllyOf(s,hacker.id,p.id)) return true;
+        const r=s.relationships?.[hacker.id]?.[p.id]||{};
+        return Number(r.rivalry||0)>=78 && Number(r.trust||50)<=30 && Number(r.loyalty||50)<=30;
+      });
+      replacement=pick(nonAllyPool.length?nonAllyPool:replPool);
       if(replacement){replacement.nominated=true;s.nominees=s.nominees.filter(id=>id!==removed.id).concat(replacement.id);}
     }
     const forced=pick(living(s).filter(p=>p.id!==s.currentHOH.id));
