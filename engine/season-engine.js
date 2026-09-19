@@ -247,11 +247,23 @@
 
   function runStandardWeek(s,week){
     s.week=week;
-    if(week>=2&&week<=3)appStoreRound(s,week);s.phase="standard";s.houseguests.forEach(h=>{h.safe=false;h.nominated=false;});
+    s.phase="standard";
+    // Opening-week immunity must remain active through the first HOH. On later
+    // weeks, clear the previous week's safety before determining HOH eligibility.
+    // Never clear Week 1 safety here, because those protected Houseguests are
+    // specifically ineligible for the first HOH.
+    if(week!==1){
+      s.houseguests.forEach(h=>{h.safe=false;h.nominated=false;});
+    }else{
+      s.houseguests.forEach(h=>{h.nominated=false;});
+    }
     const pool=eligibleHOH(s);if(pool.length<1)return null;
     const comp=C().runCompetition(pool,{week,type:"hoh"}),hoh=comp.winner;
     s.currentHOH=hoh.id;s._priorHohIds=[hoh.id];
     log(s,{week,phase:s.phase,type:"hoh",winnerId:hoh.id,participants:pool.map(p=>p.id),competition:comp,title:`Head of Household — ${comp.label}`,lines:[`${displayName(hoh)} wins HOH.`]});
+    // The BB App Store results are revealed after the HOH competition, not
+    // before it. The real twist operated in Weeks 1-3.
+    if(week>=1&&week<=3)appStoreRound(s,week);
     runNominations(s,week);
     const hacker=runHacker(s,week);
     const forced=hacker?s.bb20Twists.hacker.forcedPovPlayerId:null;
@@ -323,10 +335,13 @@
   function simulateSeason(s,config){
     ensureState(s);s.history=[];s.jury=[];s.evicted=[];s.evictionVotes=[];s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.currentHOH=null;s.finale=null;s._priorHohIds=[];s.bb20Twists={};s.season.evictionCount=0;s.season.castSize=s.houseguests.length;
     s.houseguests.forEach(h=>{h.active=true;h.safe=false;h.nominated=false;h.juryMember=false;h.evicted=false;h.placement=null;});
-    randomizeRelationships(s);openingImmunity(s);initializeApps(s);appStoreRound(s,1);
+    randomizeRelationships(s);openingImmunity(s);initializeApps(s);
     const firstPool=eligibleHOH(s);if(firstPool.length){
       const comp=C().runCompetition(firstPool,{week:1,type:"hoh"}),hoh=comp.winner;s.currentHOH=hoh.id;s._priorHohIds=[hoh.id];
       log(s,{week:1,phase:"standard",type:"hoh",winnerId:hoh.id,participants:firstPool.map(p=>p.id),competition:comp,title:`Head of Household — ${comp.label}`,lines:[`${displayName(hoh)} wins the first HOH of the season.`]});
+      // App Store results are revealed after the first HOH, matching the BB20
+      // episode/timeline order. The same rule is used for Weeks 2 and 3.
+      appStoreRound(s,1);
       runNominations(s,1);const pov=runPOV(s,1,"pov");applyVeto(s,1,pov);const e=evictionCycle(s,1);if(e)bonusLifeCheck(s,e,1);
     }
     let week=2,guard=0;
