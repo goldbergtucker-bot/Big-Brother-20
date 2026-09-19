@@ -111,6 +111,8 @@
   }
 
   function chooseNominees(s,hoh,week){
+    // The HOH, anyone with active Week 1 immunity, and anyone otherwise
+    // protected from nomination are never valid nominees.
     let pool=living(s).filter(p=>p.id!==hoh.id&&!p.safe);
     if(R()?.pickNominees){try{const p=R().pickNominees(s,hoh,pool,Math.min(2,pool.length));if(p?.length>=2)return p.slice(0,2);}catch(e){}}
     return shuffle(pool).slice(0,2);
@@ -335,7 +337,13 @@
   function simulateSeason(s,config){
     ensureState(s);s.history=[];s.jury=[];s.evicted=[];s.evictionVotes=[];s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.currentHOH=null;s.finale=null;s._priorHohIds=[];s.bb20Twists={};s.season.evictionCount=0;s.season.castSize=s.houseguests.length;
     s.houseguests.forEach(h=>{h.active=true;h.safe=false;h.nominated=false;h.juryMember=false;h.evicted=false;h.placement=null;});
-    randomizeRelationships(s);openingImmunity(s);initializeApps(s);
+    randomizeRelationships(s);
+    // Initialize BB20 twist state BEFORE the premiere immunity is awarded.
+    // The immunity result must survive into the first HOH and the entire
+    // opening eviction cycle; initializing it afterward would erase the
+    // protected move-in groups and make all 16 Houseguests eligible.
+    initializeApps(s);
+    openingImmunity(s);
     const firstPool=eligibleHOH(s);if(firstPool.length){
       const comp=C().runCompetition(firstPool,{week:1,type:"hoh"}),hoh=comp.winner;s.currentHOH=hoh.id;s._priorHohIds=[hoh.id];
       log(s,{week:1,phase:"standard",type:"hoh",winnerId:hoh.id,participants:firstPool.map(p=>p.id),competition:comp,title:`Head of Household — ${comp.label}`,lines:[`${displayName(hoh)} wins the first HOH of the season.`]});
