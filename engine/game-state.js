@@ -1,0 +1,144 @@
+/*
+ * BIG BROTHER 20 SIMULATOR — INITIAL GAME STATE
+ *
+ * This file owns the shape of the game state. The season engine mutates
+ * this object instead of creating competing sources of truth.
+ */
+
+(function () {
+  function emptyRatings() {
+    return {
+      general: 50,
+      physical: 50,
+      mental: 50,
+      social: 50,
+      strategic: 50
+    };
+  }
+
+  function emptyRelationships() {
+    return {
+      friendship: 50,
+      trust: 50,
+      loyalty: 50,
+      rivalry: 0,
+      respect: 50,
+      attraction: 0,
+      type: "Unspecified"
+    };
+  }
+
+  function createHouseguest(index) {
+    return {
+      id: `hg-${index + 1}`,
+      slot: index + 1,
+      firstName: "",
+      lastName: "",
+      displayName: "",
+      portraitUrl: "",
+      teamId: null,
+      gender: "",
+      teamCaptain: false,
+      ratings: emptyRatings(),
+      relationships: emptyRelationships(),
+      allianceIds: [],
+      active: true,
+      safe: false,
+      nominated: false,
+      juryMember: false,
+      evicted: false,
+      placement: null
+    };
+  }
+
+  function createInitialState(config) {
+    const houseguests = Array.from(
+      { length: config.defaultCastSize },
+      (_, index) => createHouseguest(index)
+    );
+
+    const relationships = {};
+    houseguests.forEach(hg => {
+      relationships[hg.id] = {};
+      houseguests.forEach(other => {
+        if (hg.id !== other.id) {
+          relationships[hg.id][other.id] = {
+            friendship: 50,
+            trust: 50,
+            loyalty: 50,
+            rivalry: 0,
+            respect: 50,
+            attraction: 0
+          };
+        }
+      });
+    });
+
+    return {
+      version: 2,
+      season: {
+        id: config.seasonId,
+        number: config.seasonNumber,
+        originalYear: config.originalYear,
+        name: "Big Brother 20 — Custom Cast",
+        themeUrl: "",
+        logoUrl: "",
+        liveFeedsEnabled: true,
+        liveFeedProfile: {
+          backstories: "",
+          priorRelationships: "",
+          personalities: "",
+          conflictsAndRomance: "",
+          recurringTopics: "",
+          feedInstructions: ""
+        }
+      },
+
+      phase: "setup",
+      week: 0,
+      day: 0,
+
+      houseguests,
+      teams: config.teams.map(team => ({
+        id: team.id,
+        name: team.name,
+        memberIds: []
+      })),
+
+      alliances: [],
+      relationships,
+
+      currentHOH: null,
+      originalHOH: null,
+      secretHOH: null,
+      dethronedHOH: null,
+      nominees: [],
+      intendedTarget: null,
+      targetHistory: [],
+      backdoorTargetId: null,
+      povPlayers: [],
+      vetoWinners: [],
+      evictionVotes: [],
+      evicted: [],
+      jury: [],
+
+      bbBucks: {},
+      powers: [],
+      coinState: null,
+      _bucksAwarded: false,
+
+      /* BB20 twist state */
+      bb20Twists: {},
+
+      history: [],
+      currentEventIndex: -1,
+      finale: null
+    };
+  }
+
+  window.GameState = {
+    emptyRatings,
+    emptyRelationships,
+    createInitialState
+  };
+})();
