@@ -216,11 +216,6 @@
       </section>`;
       return body;
     }
-    if (entry.type === "bestie-groups") {
-      const groups = d.bestieGroups || view?.bestieGroups || [];
-      body += `<div class="teams-sim-grid">${groups.map((g,i)=>`<section class="team-sim-card"><h3>Festie Besties ${i+1}</h3><div class="team-sim-members">${(g.memberIds||[]).map(id=>card(byId(view,id),"BESTIE")).join("")}</div></section>`).join("")}</div>`;
-      return body;
-    }
     if (entry.type === "split-house") {
       const groups = d.splitHouse?.groups || view?.splitHouse?.groups || [];
       body += `<div class="teams-sim-grid">${groups.map(g=>`<section class="team-sim-card"><h3>${esc(g.label)}</h3><div class="team-sim-members">${(g.memberIds||[]).map(id=>card(byId(view,id),"IN GROUP")).join("")}</div></section>`).join("")}</div>`;
@@ -252,7 +247,7 @@
         }
         voteLine = `By a vote of <strong>${a} to ${b}</strong>, ${esc(displayName(evicted))}, you have been evicted.`;
       } else {
-        // Group block of 3+ (Festie Besties): show the full tally rather than a binary count.
+        // Multi-nominee block: show the full tally rather than a binary count.
         const tallyText = nomineeIds.map(id => `${esc(displayName(byId(view,id)))}: ${Number(counts[id]||0)}`).join(" · ");
         voteLine = `By a house vote (${tallyText}), ${esc(displayName(evicted))}, you have been evicted.`;
       }
@@ -312,12 +307,7 @@
         : (Array.isArray(entry.winnerIds) && entry.winnerIds.length ? entry.winnerIds : [d.winnerId || entry.winnerId || entry.competition?.winner?.id]);
       const winners = winnerIds.map(id=>byId(view,id)).filter(Boolean);
       if (winners.length) {
-        // Festie Besties are active only during Weeks 3–5. When the Veto is
-        // won by a Bestie group, show the entire winning group together.
-        const povRole = Number(entry.week) >= 3 && Number(entry.week) <= 5 && (d.winnerIds?.length || entry.winnerIds?.length)
-          ? "FESTIE BESTIES"
-          : (Number(entry.week) >= 3 && Number(entry.week) <= 5 ? "FESTIE BESTIE" : "POV WINNER");
-        body += `<div class="hero-players veto-winner-only">${winners.map(w=>card(w,povRole)).join("")}</div>`;
+        body += `<div class="hero-players veto-winner-only">${winners.map(w=>card(w,"POV WINNER")).join("")}</div>`;
       }
     } else if (entry.type === "wildcard") {
       const winnerId = d.winnerId || entry.winnerId || entry.competition?.winner?.id;
