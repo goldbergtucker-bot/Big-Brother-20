@@ -152,7 +152,15 @@
     noms.forEach(n=>n.nominated=true);s.nominees=noms.map(n=>n.id);
     const target=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0];
     s.intendedTarget=target?displayName(target):null;s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
-    log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,targetHistory:s.targetHistory,title:"Nomination Ceremony",lines:[`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`]});
+    s.backdoorTargetId=null;
+    if(R()?.planBackdoor){
+      const plan=R().planBackdoor(s,hoh,noms);
+      if(plan?.use&&plan.target){
+        s.backdoorTargetId=plan.target.id;
+        s.targetHistory.push({text:displayName(plan.target),reason:`Backdoor plan — ${plan.reason}`});
+      }
+    }
+    log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,backdoorTargetId:s.backdoorTargetId||null,targetHistory:s.targetHistory,nominationStrategy:s.nominationStrategy||null,title:"Nomination Ceremony",lines:[`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`,s.nominationStrategy?.type==='duo'?`The HOH deliberately nominates the duo together as a strategic pair.`:"",s.backdoorTargetId?`The HOH is considering a backdoor against ${displayName(hg(s,s.backdoorTargetId))}.`:""] .filter(Boolean)});
   }
 
   function selectPOVPlayers(s,week,forcedId=null){
