@@ -147,10 +147,32 @@
   function pickNominees(state, hoh, eligible, count) {
     if (count < 2 || eligible.length < 2) return eligible.slice(0, count);
 
+    // An alliance is not an absolute game rule, but it is a strong strategic
+    // commitment.  The old duo logic could bypass the normal ally-protection
+    // check and nominate two of the HOH's allies simply because THEY were a
+    // close pair.  That made the HOH look like they were randomly renominating
+    // their own alliance.  Only a severe relationship breakdown can override
+    // ally protection.
+    const protectedAlly = hg => {
+      if (!isAllyOf(state, hoh.id, hg.id)) return false;
+      const r = rel(state, hoh.id, hg.id) || {};
+      const rivalry = Number(r.rivalry || 0);
+      const trust = Number(r.trust || 50);
+      const loyalty = Number(r.loyalty || 50);
+      return !(rivalry >= 78 && trust <= 30 && loyalty <= 30);
+    };
+
+    const protectedPool = eligible.filter(hg => !protectedAlly(hg));
+    // If there are at least two non-allies, nominations should come from that
+    // pool.  Allies remain available only when the HOH genuinely has no other
+    // two-person nomination combination, preventing arbitrary ally-on-ally
+    // nominations in normal circumstances.
+    const nominationPool = protectedPool.length >= count ? protectedPool : eligible.slice();
+
     const pairs = [];
-    for (let i = 0; i < eligible.length; i++) {
-      for (let j = i + 1; j < eligible.length; j++) {
-        const a = eligible[i], b = eligible[j];
+    for (let i = 0; i < nominationPool.length; i++) {
+      for (let j = i + 1; j < nominationPool.length; j++) {
+        const a = nominationPool[i], b = nominationPool[j];
         const score = pairStrategyScore(state, hoh, a, b);
         pairs.push({ a, b, score });
       }
@@ -158,9 +180,9 @@
     pairs.sort((x, y) => y.score - x.score);
 
     // A duo nomination is allowed for a genuine showmance/very close pair,
-    // but sharing an alliance is NOT by itself a reason to nominate the pair.
-    // This prevents the strategy engine from manufacturing alliance-on-alliance
-    // conflict just because two players happen to share an alliance.
+    // but neither member should be the HOH's protected ally when other
+    // candidates exist. Sharing an alliance is never, by itself, a reason to
+    // nominate that alliance together.
     const duoChance = .16 + Math.max(0, Number(hoh.ratings?.strategic || 50) - 50) / 260;
     const duo = pairs.find(pair => {
       const ra = rel(state, hoh.id, pair.a.id) || {};
@@ -174,14 +196,15 @@
       const explicitDuo = typeA.includes('showmance') || typeB.includes('showmance') ||
         typeA.includes('secret pair') || typeB.includes('secret pair');
       const genuineClosePair = pairBond >= 78 || attraction >= 78;
-      return explicitDuo || genuineClosePair;
+      return (explicitDuo || genuineClosePair) &&
+        (!protectedAlly(pair.a) && !protectedAlly(pair.b));
     });
     if (duo && Math.random() < duoChance) {
       state.nominationStrategy = { type: 'duo', nomineeIds: [duo.a.id, duo.b.id], reason: 'visible close duo / showmance' };
       return [duo.a, duo.b];
     }
 
-    const scored = eligible.map(hg => {
+    const scored = nominationPool.map(hg => {
       const r = rel(state, hoh.id, hg.id) || {};
       const bond = bondScore(state, hoh.id, hg.id);
       const rival = Number(r.rivalry || 0);
@@ -191,12 +214,9 @@
       let score = bond * .52 + Number(r.respect || 50) * .08 - rival * .24;
       score -= strategicThreat * .16 + compThreat * .08;
 
-      // Strong allies are protected by default. An alliance member should only
-      // become a normal nominee when the relationship itself shows a serious
-      // breakdown (very low trust/loyalty plus meaningful rivalry).
       if (alliance) {
         const trust = Number(r.trust || 50), loyalty = Number(r.loyalty || 50);
-        const allianceBreakdown = rival >= 72 && trust <= 38 && loyalty <= 38;
+        const allianceBreakdown = rival >= 78 && trust <= 30 && loyalty <= 30;
         score += allianceBreakdown ? 2 : 42 + trust * .14 + loyalty * .14;
       }
       if (Number(r.friendship || 50) >= 72 && Number(r.trust || 50) >= 65) score += 18;
@@ -205,7 +225,18 @@
       return { hg, score };
     });
     scored.sort((a, b) => a.score - b.score);
-    return scored.slice(0, count).map(x => x.hg);
+
+    const chosen = scored.slice(0, count).map(x => x.hg);
+    // Defensive final guard: when enough non-allies were available, never
+    // return an HOH ally due to a scoring/tie edge case.
+    if (protectedPool.length >= count && chosen.some(protectedAlly)) {
+      const replacements = protectedPool.filter(hg => !chosen.some(x => x.id === hg.id));
+      for (let i = 0; i < chosen.length; i++) {
+        if (!protectedAlly(chosen[i]) || !replacements.length) continue;
+        chosen[i] = replacements.shift();
+      }
+    }
+    return chosen;
   }
 
   /**
@@ -287,16 +318,27 @@
     const pool = eligible.filter(hg => !avoidIds.includes(hg.id));
     if (!pool.length) return null;
 
-    // If a genuine backdoor was planned, the named target is the replacement
-    // whenever that target is still eligible. Do not substitute a random ally
-    // or pawn and silently defeat the backdoor plan.
+    // A genuine backdoor target always outranks the normal replacement logic.
     const plannedId = state.backdoorTargetId;
     if (plannedId) {
       const planned = pool.find(hg => hg.id === plannedId);
       if (planned && planned.id !== hoh.id && !planned.safe) return planned;
     }
 
-    return pickNominees(state, hoh, pool, 1)[0];
+    // Do not casually renominate one of the HOH's allies after a Veto/Cloud
+    // save.  Only an unmistakable alliance breakdown is eligible to override
+    // this protection.  If there are enough non-allies, use only them.
+    const isProtectedAlly = hg => {
+      if (!isAllyOf(state, hoh.id, hg.id)) return false;
+      const r = rel(state, hoh.id, hg.id) || {};
+      return !(Number(r.rivalry || 0) >= 78 && Number(r.trust || 50) <= 30 && Number(r.loyalty || 50) <= 30);
+    };
+    const nonAllies = pool.filter(hg => !isProtectedAlly(hg));
+    const candidatePool = nonAllies.length ? nonAllies : pool;
+
+    const replacement = pickNominees(state, hoh, candidatePool, 1)[0];
+    if (replacement) return replacement;
+    return candidatePool[0] || null;
   }
 
   /** Decides whether a veto winner uses the veto, and on whom. */
