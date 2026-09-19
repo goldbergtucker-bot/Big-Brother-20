@@ -7,7 +7,7 @@
  *   - portrait/state snapshot fallback
  *   - mobile responsive presentation
  *   - official BB20 competition names/descriptions
- *   - Backstage Boss (Week 1), Festie Besties (Week 3+), Split House Double Eviction (Week 7)
+ *   - BB20 premiere immunity, BB App Store Weeks 1-3, H@cker Competition, Jury Battle Back, and BB20 endgame twists
  *   - editable starting relationships
  *   - editable custom alliances
  */
@@ -168,6 +168,12 @@
     if (entry.type === "app-store") {
       const top=byId(view,d.winnerId), crap=byId(view,d.crapId);
       body += `<section class="wildcard-panel app-store-panel"><div class="wildcard-heading"><span class="ceremony-label">BB APP STORE — WEEK ${esc(entry.week)}</span><p>One Houseguest receives the Power App and a different Houseguest receives the Crap App punishment. App Store recipients are removed from eligibility for future rounds.</p></div><div class="wildcard-competitors"><div class="wildcard-team">${top?card(top,`TOP TRENDING — ${d.powerApp||"POWER APP"}`):""}</div><div class="wildcard-team">${crap?card(crap,`LEAST TRENDING — ${d.crapApp||"CRAP APP"}`):""}</div></div></section>`;
+      return body;
+    }
+    if (entry.type === "opening-immunity") {
+      const immuneIds=d.immuneIds || d.participants || view?.bb20Twists?.openingImmunity?.immuneIds || [];
+      const immune=immuneIds.map(id=>byId(view,id)).filter(Boolean);
+      body += `<section class="wildcard-panel opening-immunity-panel"><div class="wildcard-heading"><span class="ceremony-label">WEEK 1 IMMUNITY</span><p>These eight Houseguests are immune from the first eviction and are not eligible to compete in the first Head of Household competition.</p></div><div class="wildcard-competitors">${immune.map(h=>`<div class="wildcard-team">${card(h,"IMMUNE — CANNOT PLAY IN FIRST HOH")}</div>`).join("")}</div></section>`;
       return body;
     }
     if (entry.type === "punishment") {
