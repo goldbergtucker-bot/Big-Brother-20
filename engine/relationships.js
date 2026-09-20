@@ -246,7 +246,7 @@
    */
   function planBackdoor(state, hoh, nominees) {
     const nomineeIds = new Set(nominees.map(n => n.id));
-    const candidates = livingHouseguests(state).filter(hg => h.id !== hoh.id && !nomineeIds.has(hg.id) && !hg.safe);
+    const candidates = livingHouseguests(state).filter(hg => hg.id !== hoh.id && !nomineeIds.has(hg.id) && !hg.safe);
     if (!candidates.length) return { use: false, target: null, reason: "No eligible backdoor target" };
 
     // A backdoor is unnecessary when the HOH's actual initial target is already
