@@ -68,11 +68,85 @@
   function pair(s,topic,exclude=[]){const people=active(s).filter(p=>!exclude.includes(p.id));const a=pick(people),b=closest(s,a,exclude)||pick(people.filter(x=>x.id!==a?.id));return [a,b,strategyText(s,a,b,topic)];}
   function pushPair(out,s,minute,topic,exclude=[]){const [a,b,t]=pair(s,topic,exclude);if(a&&b)out.push(makeUpdate(s,minute,t,[a,b],topic));}
 
+  function groupForScene(s, anchor, size, exclude=[]){
+    const people=active(s).filter(p=>!exclude.includes(p.id));
+    if(!people.length)return [];
+    let pool=[];
+    if(anchor){
+      const candidates=people.filter(p=>p.id!==anchor.id).sort((a,b)=>{
+        const ar=rel(s,anchor,a),br=rel(s,anchor,b);
+        const as=(ar.rivalry||0)*.45+(ar.friendship||0)*.20+(ar.trust||0)*.18+(ar.respect||0)*.17;
+        const bs=(br.rivalry||0)*.45+(br.friendship||0)*.20+(br.trust||0)*.18+(br.respect||0)*.17;
+        return bs-as;
+      });
+      pool=[anchor,...candidates];
+    }else pool=shuffle(people);
+    return pool.slice(0,Math.min(size,people.length));
+  }
+
+  function groupScene(s,minute,topic,story,forceAll=false){
+    const people=active(s); if(people.length<3)return null;
+    const hoh=byId(s,s.currentHOH), n=nominees(s), targetId=s.backdoorTargetId||null;
+    const rivalryPairs=[];
+    people.forEach(a=>people.forEach(b=>{
+      if(a.id>=b.id)return;
+      const r=rel(s,a,b); if((r.rivalry||0)>=68)rivalryPairs.push([a,b,r.rivalry||0]);
+    }));
+    rivalryPairs.sort((a,b)=>b[2]-a[2]);
+    let anchor=hoh||pick(people);
+    if(topic==='conflict'&&rivalryPairs[0])anchor=rivalryPairs[0][0];
+    const size=forceAll?people.length:Math.min(people.length,3+Math.floor(Math.random()*Math.min(5,people.length-2)));
+    let group=groupForScene(s,anchor,size);
+    if(topic==='conflict'&&rivalryPairs[0]){
+      const pair=rivalryPairs[0];
+      group=[pair[0],pair[1],...group.filter(p=>p.id!==pair[0].id&&p.id!==pair[1].id)].slice(0,size);
+    }
+    const names=group.map(name).join(', ');
+    const prior=story?.lastEvent?` Earlier in the day, ${story.lastEvent}`:'';
+    let text='';
+    if(topic==='conflict'&&rivalryPairs[0]){
+      const [a,b]=rivalryPairs[0];
+      text=`A larger group conversation gets tense when ${name(a)} and ${name(b)} clash over the game. The disagreement is not treated as an isolated moment: people around them start comparing notes about who is trustworthy, who is leaking information, and whether the conflict changes next week's target structure. ${name(a)} and ${name(b)} both leave the conversation more wary of each other.`;
+      if(n.some(x=>x.id===a.id)||n.some(x=>x.id===b.id))text+=` Because one of them is already vulnerable this week, the argument immediately becomes part of the vote-counting conversation.`;
+    }else if(topic==='nomination'){
+      text=`A group of ${group.length} Houseguests gathers to compare notes on the current week. ${names} discuss the HOH, the nominations, possible Veto outcomes, and which relationships are actually solid. The conversation is less about one-on-one promises and more about whether the house is splitting into recognizable sides.`;
+      if(targetId){const t=byId(s,targetId);if(t)text+=` The possibility of ${name(t)} becoming the replacement nominee is specifically discussed.`;}
+      if(n.length)text+=` The current nominees, ${n.map(name).join(' and ')}, remain central to the discussion.`;
+    }else if(topic==='alliance'){
+      text=`Several Houseguests sit together and compare information from different rooms. ${names} talk about alliance loyalty, side deals, who has been spending the most time with whom, and whether everyone is hearing the same version of the week's plan.${prior}`;
+    }else{
+      text=`A larger group settles into a long stretch of conversation. ${names} bounce between personal stories, jokes, house routines, and game talk. The discussion gradually turns strategic as someone mentions the week's power structure and everyone starts revealing a little more about where they stand.${prior}`;
+    }
+    if(hoh&&topic!=='personal')text+=` HOH ${name(hoh)} remains an important reference point in the conversation.`;
+    const apps=s.bb20Twists?.apps||{};
+    if(apps.cloudUsed&&topic!=='personal')text+=` The house is also reacting to the consequences of The Cloud being used this week, even though the exact power-holder decision may not be publicly understood.`;
+    if(apps.identityTheftUsed&&topic!=='personal')text+=` The nomination picture has been complicated by a secret Identity Theft move, so several Houseguests are comparing stories about how the block changed.`;
+    return makeUpdate(s,minute,text,group,`group-${topic}`);
+  }
+
+  function continuityEvent(s,story){
+    const n=nominees(s),hoh=byId(s,s.currentHOH), people=active(s);
+    const rivalryPairs=[];
+    people.forEach(a=>people.forEach(b=>{if(a.id>=b.id)return;const r=rel(s,a,b);if((r.rivalry||0)>=75)rivalryPairs.push([a,b,r.rivalry||0]);}));
+    rivalryPairs.sort((a,b)=>b[2]-a[2]);
+    if(rivalryPairs[0])story.lastEvent=`${name(rivalryPairs[0][0])} and ${name(rivalryPairs[0][1])} are carrying visible tension into the next conversation.`;
+    else if(n.length)story.lastEvent=`the house is still tracking ${n.map(name).join(' and ')} as the week's nominees.`;
+    else if(hoh)story.lastEvent=`people are still adjusting to ${name(hoh)} holding power.`;
+    else story.lastEvent="the house is still settling into the week's new dynamics.";
+  }
+
   function generateDay(s,day){
     const people=active(s),out=[]; if(people.length<2)return out;
     const n=nominees(s),hoh=byId(s,s.currentHOH),pov=byId(s,(s.vetoWinners||[]).slice(-1)[0]);
     const add=(m,t,ps=[],k='conversation')=>out.push(makeUpdate(s,m,t,ps,k));
     const introCtx=contextLines(s);
+    const story=s._feedStory||{};
+    continuityEvent(s,story);
+    const groupTopic=(day==='Friday'||day==='Sunday'||day==='Monday'||day==='Tuesday'||day==='Wednesday')?'nomination':'alliance';
+    const groupOne=groupScene(s,7*60+30,groupTopic,story,false); if(groupOne)out.push(groupOne);
+    if(day==='Thursday'||day==='Saturday'||day==='Monday') { const groupTwo=groupScene(s,11*60+18,'alliance',story,false); if(groupTwo)out.push(groupTwo); }
+    if((day==='Friday'||day==='Tuesday'||day==='Wednesday') && active(s).length>=4){ const conflict=groupScene(s,21*60+12,'conflict',story,false); if(conflict)out.push(conflict); }
+    if(day==='Thursday-pre-eviction' && active(s).length>=5){ const whole=groupScene(s,15*60+40,'alliance',story,true); if(whole)out.push(whole); }
 
     if(day==='Thursday'){
       if(hoh){const confidant=closest(s,hoh);add(17*60+12,`${name(hoh)} comes down from the HOH win still energized. ${name(confidant)} joins them for the first serious one-on-one of the new week. ${name(hoh)} says the immediate goal is to listen before locking anything in, but already starts sorting the house into people who feel safe, people who feel useful, and people who could become problems.${ctxSentence(s,[hoh,confidant])}`,[hoh,confidant],'hoh');}
@@ -133,7 +207,9 @@
 
   function dailyRecord(s,week,day,anchor){
     const temp={...s,houseguests:(anchor?.snapshot?.houseguests||s.houseguests).map(h=>({...h})),nominees:(anchor?.snapshot?.nominees||s.nominees||[]).slice(),currentHOH:anchor?.snapshot?.currentHOH||s.currentHOH,povPlayers:(anchor?.snapshot?.povPlayers||s.povPlayers||[]).slice(),vetoWinners:(anchor?.snapshot?.vetoWinners||s.vetoWinners||[]).slice(),relationships:s.relationships};
+    temp._feedStory=s._feedStory||{};
     const items=generateDay(temp,day);
+    s._feedStory=temp._feedStory;
     const displayDay=day==='Thursday-pre-eviction'?'Thursday — Eviction Day':day==='Thursday'?'Thursday Night':day;
     const context=contextLines(s);
     return {week,phase:'live-feeds',type:'live-feed-day',day,title:`Live Feeds — ${displayDay}`,snapshot:anchor?.snapshot?JSON.parse(JSON.stringify(anchor.snapshot)):null,lines:[],data:{day:displayDay,feedItems:items,participants:[...new Set(items.flatMap(x=>x.participants||[]))],contextNotes:context}};
@@ -143,6 +219,7 @@
     if(!s?.season?.liveFeedsEnabled){s.liveFeeds={enabled:false,version:2};return s;}
     if(!Array.isArray(s.history)||s.history.some(e=>e.type==='live-feed-day'))return s;
     const original=s.history.slice(),out=[];
+    s._feedStory={lastEvent:''};
     const weeks=[...new Set(original.map(e=>e.week).filter(w=>typeof w==='number'&&w>=1))].sort((a,b)=>a-b);
     const opening=original.filter(e=>e.week===0),finale=original.filter(e=>e.week==='Final');
     opening.forEach(e=>out.push(e));
@@ -168,7 +245,8 @@
     finale.forEach(e=>out.push(e));
     s.history=out;
     s.history.forEach((e,i)=>e.id=i+1);
-    s.liveFeeds={enabled:true,weekModel:'Thursday-to-Thursday',timezone:'BBT',dailyPageMode:true,version:2};
+    delete s._feedStory;
+    s.liveFeeds={enabled:true,weekModel:'Thursday-to-Thursday',timezone:'BBT',dailyPageMode:true,version:3,groupScenes:true,continuity:true};
     return s;
   };
   window.LiveFeeds=LiveFeeds;
