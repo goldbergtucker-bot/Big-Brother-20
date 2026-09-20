@@ -137,18 +137,49 @@
     const holderId=s.bb20Twists.apps?.cloudHolderId;
     const holder=hg(s,holderId);
     if(!holder||!holder.active||s.bb20Twists.apps.cloudUsed)return noms;
-    if(noms.some(n=>n.id===holder.id)){
-      s.bb20Twists.apps.cloudUsed=true;
-      const replPool=living(s).filter(p=>p.id!==hoh.id&&p.id!==holder.id&&!p.safe&&!noms.some(n=>n.id===p.id));
-      const replacement=R()?.pickReplacement?R().pickReplacement(s,hoh,replPool,noms.map(n=>n.id)):pick(replPool);
-      if(replacement){replacement.nominated=true;const final=noms.filter(n=>n.id!==holder.id).concat(replacement);log(s,{week,phase:s.phase,type:"power-use",winnerId:holder.id,title:"The Cloud — Power Used",lines:[`${displayName(holder)} activates The Cloud and cannot be nominated.`,`${displayName(hoh)} names ${displayName(replacement)} as the replacement nominee.`]});return final;}
+    if(!noms.some(n=>n.id===holder.id))return noms;
+    const r=s.relationships?.[hoh.id]?.[holder.id]||{};
+    const targetRisk=(100-Number(r.trust||50))*.20+(100-Number(r.loyalty||50))*.12+Number(r.rivalry||0)*.42+Number(holder.ratings?.strategic||50)*.10+Number(holder.ratings?.physical||50)*.06;
+    const useChance=Math.max(.18,Math.min(.88,.28+targetRisk/150));
+    if(Math.random()>useChance){
+      log(s,{week,phase:s.phase,type:"power-decision",winnerId:holder.id,title:"The Cloud — Held",lines:[`${displayName(holder)} is eligible to activate The Cloud but decides not to use it this week, preserving the power for a more dangerous nomination or Veto meeting.`]});
+      return noms;
     }
+    s.bb20Twists.apps.cloudUsed=true;
+    const replPool=living(s).filter(p=>p.id!==hoh.id&&p.id!==holder.id&&!p.safe&&!noms.some(n=>n.id===p.id));
+    const replacement=R()?.pickReplacement?R().pickReplacement(s,hoh,replPool,noms.map(n=>n.id)):pick(replPool);
+    if(replacement){replacement.nominated=true;const final=noms.filter(n=>n.id!==holder.id).concat(replacement);log(s,{week,phase:s.phase,type:"power-use",winnerId:holder.id,title:"The Cloud — Power Used",lines:[`${displayName(holder)} activates The Cloud and protects themselves from nomination.`,`${displayName(hoh)} names ${displayName(replacement)} as the replacement nominee.`]});return final;}
     return noms;
+  }
+
+  function applyIdentityTheft(s,hoh,noms,week){
+    const app=s.bb20Twists.apps||{},holder=hg(s,app.identityTheftHolderId);
+    if(!holder||!holder.active||app.identityTheftUsed||holder.id===hoh.id)return noms;
+    const hr=s.relationships?.[hoh.id]?.[holder.id]||{},nominated=noms.some(n=>n.id===holder.id);
+    const risk=Number(hr.rivalry||0)*.45+(100-Number(hr.trust||50))*.18+(100-Number(hr.loyalty||50))*.12+(nominated?42:0)+(Number(holder.ratings?.strategic||50)-50)*.10;
+    const useChance=Math.max(.10,Math.min(.62,.16+risk/180));
+    if(Math.random()>useChance){
+      log(s,{week,phase:s.phase,type:"power-decision",winnerId:holder.id,title:"Identity Theft — Held",lines:[`${displayName(holder)} secretly has Identity Theft available but decides not to use it this week.`]});
+      return noms;
+    }
+    const candidates=living(s).filter(p=>p.id!==hoh.id&&p.id!==holder.id&&!p.safe);
+    if(candidates.length<2)return noms;
+    const scored=candidates.map(target=>{
+      const r=s.relationships?.[holder.id]?.[target.id]||{},ally=R()?.isAllyOf?.(s,holder.id,target.id);
+      const threat=(target.ratings?.strategic||50)*.42+(target.ratings?.physical||50)*.16+(target.ratings?.social||50)*.10+(target.ratings?.mental||50)*.08;
+      return {target,score:threat+Number(r.rivalry||0)*.35-(Number(r.friendship||50)+Number(r.trust||50))*.12-(ally?35:0)+Math.random()*8};
+    }).sort((a,b)=>b.score-a.score);
+    const chosen=scored.slice(0,2).map(x=>x.target); if(chosen.length<2)return noms;
+    app.identityTheftUsed=true; noms.forEach(n=>n.nominated=false); chosen.forEach(n=>n.nominated=true); s.nominees=chosen.map(n=>n.id);
+    s.intendedTarget=displayName(chosen[0]); s.intendedTargetId=chosen[0].id; s.targetHistory=[{text:displayName(chosen[0]),reason:"Identity Theft — secret replacement nominations"}]; s.backdoorTargetId=null;
+    log(s,{week,phase:s.phase,type:"power-use",winnerId:holder.id,title:"Identity Theft — Power Used",lines:[`${displayName(holder)} secretly activates Identity Theft and replaces the HOH's nominations.`,`${displayName(holder)} secretly nominates ${displayName(chosen[0])} and ${displayName(chosen[1])}.`,`The HOH retains control over later replacement nominations.`]});
+    return chosen;
   }
 
   function runNominations(s,week){
     const hoh=hg(s,s.currentHOH);let noms=chooseNominees(s,hoh,week);
     noms=applyCloud(s,hoh,noms,week);
+    noms=applyIdentityTheft(s,hoh,noms,week);
     noms.forEach(n=>n.nominated=true);s.nominees=noms.map(n=>n.id);
     // The initial target is the least-protected nominee from the HOH's perspective.
     // Record the target as an ID as well as display text so later strategy checks
@@ -221,6 +252,21 @@
     const saved=noms.find(n=>n.id===decision.saveId)||noms[0];saved.nominated=false;
     const pool=living(s).filter(p=>p.id!==hoh.id&&!p.safe&&!noms.some(n=>n.id===p.id)&&p.id!==winner.id);
     let repl=R()?.pickReplacement?R().pickReplacement(s,hoh,pool,noms.map(n=>n.id)):pick(pool);
+    const cloudHolder=hg(s,s.bb20Twists.apps?.cloudHolderId);
+    if(repl&&cloudHolder&&cloudHolder.active&&!s.bb20Twists.apps.cloudUsed&&repl.id===cloudHolder.id){
+      const cr=s.relationships?.[hoh.id]?.[cloudHolder.id]||{};
+      const cloudRisk=Number(cr.rivalry||0)*.38+(100-Number(cr.trust||50))*.18+(100-Number(cr.loyalty||50))*.12+(Number(cloudHolder.ratings?.strategic||50)-50)*.08;
+      const cloudUseChance=Math.max(.22,Math.min(.82,.30+cloudRisk/170));
+      if(Math.random()<cloudUseChance){
+        s.bb20Twists.apps.cloudUsed=true;
+        const alternatives=pool.filter(p=>p.id!==cloudHolder.id);
+        const alt=R()?.pickReplacement?R().pickReplacement(s,hoh,alternatives,noms.map(n=>n.id)):pick(alternatives);
+        if(alt){
+          log(s,{week,phase:s.phase,type:"power-use",winnerId:cloudHolder.id,title:"The Cloud — Veto Meeting Use",lines:[`${displayName(cloudHolder)} activates The Cloud when the replacement nomination is about to fall on them.`,`${displayName(hoh)} must choose another eligible replacement nominee.`]});
+          repl=alt;
+        }
+      }
+    }
     if(repl&&(repl.id===winner.id||repl.id===hoh.id||repl.safe))repl=pick(pool.filter(p=>p.id!==winner.id&&p.id!==hoh.id&&!p.safe));
     const finalNoms=noms.filter(n=>n.id!==saved.id);if(repl){repl.nominated=true;finalNoms.push(repl);}
     s.nominees=finalNoms.map(n=>n.id);
