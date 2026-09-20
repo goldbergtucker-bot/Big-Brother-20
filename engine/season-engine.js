@@ -174,13 +174,22 @@
         }
       }
     }
+    // Rebuild the authoritative nominee list AFTER every defensive nomination
+    // adjustment. The ceremony, later veto logic, and eviction vote must all
+    // read the exact same two nominee IDs.
+    s.nominees=noms.map(n=>n.id);
     const target=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0];
     s.intendedTarget=target?displayName(target):null;
     s.intendedTargetId=target?.id||null;
     s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
     s.backdoorTargetId=null;
     s.nominationStrategy=null;
-    if(R()?.planBackdoor && (!target || !noms.some(n=>n.id===target.id))){
+
+    // A backdoor is only considered when the initial nominations are not a
+    // clear target set. This creates real backdoor weeks without making every
+    // HOH plan one. If the HOH has a clearly disliked/low-bond nominee already
+    // on the block, the normal target path wins and no backdoor is invented.
+    if(R()?.planBackdoor){
       const plan=R().planBackdoor(s,hoh,noms);
       if(plan?.use&&plan.target){
         s.backdoorTargetId=plan.target.id;
@@ -256,9 +265,11 @@
   function evictionCycle(s,week,opts={}){
     const noms=s.nominees.map(id=>hg(s,id)).filter(Boolean);if(!noms.length)return null;
     const hoh=hg(s,s.currentHOH),nomIds=new Set(noms.map(n=>n.id));
+    // The H@cker remains a normal voting houseguest. The Hacker power is the
+    // ability to NULLIFY one other houseguest's vote, not to remove the Hacker
+    // from the voter pool. This is especially important in Weeks 6 and 7.
     let voters=(opts.voterPool||living(s)).filter(p=>p.id!==hoh.id&&!nomIds.has(p.id));
     const hacker=s.bb20Twists.hacker?.week===week?s.bb20Twists.hacker:null;
-    if(hacker?.hackerId&&Math.random()<.5)voters=voters.filter(v=>v.id!==hacker.hackerId);
     const counts={};noms.forEach(n=>counts[n.id]=0);s.evictionVotes=[];
     voters.forEach(v=>{let out=noms.length===2?R().decideVote(s,v,noms[0],noms[1],hoh):R().decideVoteMulti(s,v,noms,hoh);if(!(out in counts))out=noms[0].id;counts[out]++;s.evictionVotes.push({voterId:v.id,targetId:out});});
     // Real BB20-style Hacker vote nullification: one randomly selected legal voter
