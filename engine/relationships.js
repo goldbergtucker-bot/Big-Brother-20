@@ -249,11 +249,16 @@
     const candidates = livingHouseguests(state).filter(hg => h.id !== hoh.id && !nomineeIds.has(hg.id) && !hg.safe);
     if (!candidates.length) return { use: false, target: null, reason: "No eligible backdoor target" };
 
-    // A backdoor is unnecessary when the HOH's actual initial target is already
-    // on the block. The engine must not invent a second target simply because
-    // the Veto phase exists.
+    // Only pursue a backdoor when the initial nominees do NOT contain a clear
+    // target. The old implementation always found an "initialTarget" because
+    // one nominee necessarily has the lower bond score, which accidentally made
+    // the backdoor path impossible to reach. A high-bond/low-conflict nominee
+    // set is the signal that the HOH may be using pawns while aiming at someone
+    // else.
     const initialTarget = nominees.slice().sort((a, b) => bondScore(state, hoh.id, a.id) - bondScore(state, hoh.id, b.id))[0] || null;
-    if (initialTarget) {
+    const initialBond = initialTarget ? bondScore(state, hoh.id, initialTarget.id) : 0;
+    const clearTarget = initialTarget && initialBond < 52;
+    if (clearTarget) {
       return { use: false, target: null, reason: "Initial target is already nominated" };
     }
 
@@ -282,9 +287,12 @@
     if (!best) return { use: false, target: null, reason: "No strategically appropriate backdoor target" };
 
     const hohStrategic = Number(hoh.ratings?.strategic || 50);
-    const threshold = 64 - (hohStrategic - 50) * 0.12;
-    const baseChance = 0.20 + Math.max(0, hohStrategic - 50) / 260;
-    const use = best.score >= threshold && Math.random() < baseChance;
+    // Backdoors should be meaningful but not routine. Strategic HOHs are more
+    // willing to keep a pawn pair on the block while taking a shot at a threat,
+    // but even they should not automatically backdoor every week.
+    const threshold = 58 - (hohStrategic - 50) * 0.10;
+    const baseChance = 0.22 + Math.max(0, hohStrategic - 50) / 220;
+    const use = best.score >= threshold && Math.random() < Math.min(0.42, baseChance);
     if (!use) return { use: false, target: null, reason: "HOH chooses not to pursue a backdoor" };
 
     let reason = "major strategic threat";
