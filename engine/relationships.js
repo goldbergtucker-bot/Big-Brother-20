@@ -162,12 +162,14 @@
       return !(rivalry >= 78 && trust <= 30 && loyalty <= 30);
     };
 
-    const protectedPool = eligible.filter(hg => !protectedAlly(hg));
+    const plannedId = state.preplannedBackdoorId;
+    const nonPlannedEligible = plannedId ? eligible.filter(hg => hg.id !== plannedId) : eligible;
+    const protectedPool = nonPlannedEligible.filter(hg => !protectedAlly(hg));
     // If there are at least two non-allies, nominations should come from that
     // pool.  Allies remain available only when the HOH genuinely has no other
     // two-person nomination combination, preventing arbitrary ally-on-ally
     // nominations in normal circumstances.
-    const nominationPool = protectedPool.length >= count ? protectedPool : eligible.slice();
+    const nominationPool = protectedPool.length >= count ? protectedPool : nonPlannedEligible.slice();
 
     const pairs = [];
     for (let i = 0; i < nominationPool.length; i++) {
@@ -245,60 +247,52 @@
    * alliance, personally disliked, and unlikely to be selected for POV.
    */
   function planBackdoor(state, hoh, nominees) {
+    nominees = Array.isArray(nominees) ? nominees : [];
     const nomineeIds = new Set(nominees.map(n => n.id));
     const candidates = livingHouseguests(state).filter(hg => hg.id !== hoh.id && !nomineeIds.has(hg.id) && !hg.safe);
     if (!candidates.length) return { use: false, target: null, reason: "No eligible backdoor target" };
 
-    // A backdoor is unnecessary when the HOH's actual initial target is already
-    // on the block. The engine must not invent a second target simply because
-    // the Veto phase exists.
-    const initialTarget = nominees.slice().sort((a, b) => bondScore(state, hoh.id, a.id) - bondScore(state, hoh.id, b.id))[0] || null;
-    const initialBond = initialTarget ? bondScore(state, hoh.id, initialTarget.id) : 0;
-    // If the HOH already has a clearly disliked/low-bond nominee, treat that
-    // as the normal target. Backdoor planning remains available when the block
-    // looks more like a pawn setup.
-    if (initialTarget && initialBond < 52) {
-      return { use: false, target: null, reason: "Initial target is already nominated" };
+    // A backdoor is most useful when the HOH can safely nominate pawns and
+    // keep a dangerous target off the initial block. If there is already a
+    // clearly disliked nominee, there is less reason to engineer a backdoor.
+    if (nominees.length) {
+      const initialTarget = nominees.slice().sort((a,b)=>bondScore(state,hoh.id,a.id)-bondScore(state,hoh.id,b.id))[0] || null;
+      const initialBond = initialTarget ? bondScore(state,hoh.id,initialTarget.id) : 0;
+      if (initialTarget && initialBond < 46) return { use:false,target:null,reason:"Initial target is already nominated" };
     }
 
-    const ranked = candidates.map(target => {
-      const r = rel(state, hoh.id, target.id) || {};
-      const bond = bondScore(state, hoh.id, target.id);
-      const sameAlliance = isAllyOf(state, hoh.id, target.id);
-      const trust = Number(r.trust || 50), loyalty = Number(r.loyalty || 50), rivalry = Number(r.rivalry || 0);
-      const allianceBreakdown = sameAlliance && rivalry >= 78 && trust <= 30 && loyalty <= 30;
+    const ranked=candidates.map(target=>{
+      const r=rel(state,hoh.id,target.id)||{};
+      const sameAlliance=isAllyOf(state,hoh.id,target.id);
+      const trust=Number(r.trust||50), loyalty=Number(r.loyalty||50), rivalry=Number(r.rivalry||0);
+      const allianceBreakdown=sameAlliance&&rivalry>=72&&trust<=34&&loyalty<=34;
+      if(sameAlliance&&!allianceBreakdown)return {target,score:-Infinity,blockedAlly:true};
+      const strategic=Number(target.ratings?.strategic||50), physical=Number(target.ratings?.physical||50), mental=Number(target.ratings?.mental||50), social=Number(target.ratings?.social||50);
+      const compThreat=physical*.22+mental*.16;
+      const threat=strategic*.42+compThreat+social*.06;
+      const isolation=(100-Number(r.friendship||50))*.10;
+      const outside=sameAlliance?-20:18;
+      const breakdown=allianceBreakdown?16:0;
+      const score=threat+rivalry*.34+isolation-bondScore(state,hoh.id,target.id)*.22+outside+breakdown+(Math.random()*8-4);
+      return {target,score,blockedAlly:false,allianceBreakdown};
+    }).filter(x=>Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
+    const best=ranked[0];
+    if(!best)return {use:false,target:null,reason:"No strategically appropriate backdoor target"};
 
-      // Alliance members are excluded from ordinary backdoor planning. The
-      // only exception is an unmistakable alliance breakdown; even then the
-      // event remains rare rather than automatic.
-      if (sameAlliance && !allianceBreakdown) return { target, score: -Infinity, blockedAlly: true };
+    const hohStrategic=Number(hoh.ratings?.strategic||50);
+    const threat=Number(best.target.ratings?.strategic||50)*.42+Number(best.target.ratings?.physical||50)*.22+Number(best.target.ratings?.mental||50)*.16;
+    const rivalry=Number((rel(state,hoh.id,best.target.id)||{}).rivalry||0);
+    const meaningful=best.score>=49 && (threat>=42 || rivalry>=55);
+    const chance=Math.min(.42,Math.max(.18,.22+(hohStrategic-50)/190+(threat-55)/340));
+    const use=meaningful&&Math.random()<chance;
+    if(!use)return {use:false,target:null,reason:"HOH chooses not to pursue a backdoor"};
 
-      const targetThreat = Number(target.ratings?.strategic || 50) * 0.42 + Number(target.ratings?.physical || 50) * 0.20 + Number(target.ratings?.mental || 50) * 0.14 + Number(target.ratings?.social || 50) * 0.08;
-      const rivalryScore = rivalry * 0.30;
-      const isolation = (100 - Number(r.friendship || 50)) * 0.10;
-      const outsideAllianceBonus = sameAlliance ? -18 : 18;
-      const breakdownBonus = allianceBreakdown ? 10 : 0;
-      const score = targetThreat + rivalryScore + isolation - bond * 0.25 + outsideAllianceBonus + breakdownBonus + (Math.random() * 6 - 3);
-      return { target, score, blockedAlly: false, allianceBreakdown };
-    }).filter(x => Number.isFinite(x.score)).sort((a,b)=>b.score-a.score);
-
-    const best = ranked[0];
-    if (!best) return { use: false, target: null, reason: "No strategically appropriate backdoor target" };
-
-    const hohStrategic = Number(hoh.ratings?.strategic || 50);
-    // Planned backdoors should occur sometimes, especially for strategic HOHs,
-    // but should never become the default every week.
-    const threshold = 58 - (hohStrategic - 50) * 0.10;
-    const baseChance = 0.22 + Math.max(0, hohStrategic - 50) / 220;
-    const use = best.score >= threshold && Math.random() < Math.min(0.42, baseChance);
-    if (!use) return { use: false, target: null, reason: "HOH chooses not to pursue a backdoor" };
-
-    let reason = "major strategic threat";
-    const r = rel(state, hoh.id, best.target.id) || {};
-    if (Number(r.rivalry || 0) >= 60) reason = "personal rivalry";
-    else if (!isAllyOf(state, hoh.id, best.target.id) && Number(best.target.ratings?.strategic || 50) >= 70) reason = "opposing strategic threat";
-    else if (Number(best.target.ratings?.physical || 50) >= 75) reason = "competition threat";
-    return { use: true, target: best.target, reason };
+    let reason="major strategic threat";
+    const r=rel(state,hoh.id,best.target.id)||{};
+    if(rivalry>=60)reason="personal rivalry";
+    else if(Number(best.target.ratings?.strategic||50)>=72)reason="opposing strategic threat";
+    else if(Number(best.target.ratings?.physical||50)>=76||Number(best.target.ratings?.mental||50)>=76)reason="competition threat";
+    return {use:true,target:best.target,reason};
   }
 
   /** HOH breaks an eviction tie based on relationships, alliances and the
