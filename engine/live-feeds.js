@@ -45,6 +45,39 @@
     return `They keep the conversation measured, mixing personal talk with careful game language.`;
   }
   function ctxSentence(s,people){const c=relevantContext(s,people)[0];return c?` The feed context notes also matter here: ${c.text}`:'';}
+  function scenePool(s, anchor, min=3, max=8){
+    const living=active(s).filter(p=>p.id!==anchor?.id);
+    if(!living.length)return anchor?[anchor]:[];
+    const scored=living.map(p=>({p,score:socialScore(s,anchor,p)+Math.random()*22})).sort((a,b)=>b.score-a.score);
+    const size=Math.min(living.length+1, Math.max(min, Math.min(max, 3+Math.floor(Math.random()*6))));
+    return shuffle([anchor,...scored.slice(0,size-1).map(x=>x.p)]).filter(Boolean);
+  }
+  function groupText(s, people, topic){
+    const names=people.map(name), lead=people[0], second=people[1];
+    const A=name(lead),B=name(second);
+    const n=nominees(s),hoh=byId(s,s.currentHOH);
+    const rivalryPair=people.flatMap(a=>people.filter(b=>b.id!==a.id).map(b=>({a,b,r:rel(s,a,b)}))).sort((x,y)=>(y.r.rivalry||0)-(x.r.rivalry||0))[0];
+    let text;
+    if(rivalryPair && Number(rivalryPair.r.rivalry||0)>=72){
+      text=`${name(rivalryPair.a)} and ${name(rivalryPair.b)} are both part of the conversation, and the tension between them is obvious. What started as a group game discussion turns into competing versions of what happened and who is really driving the week. ${name(rivalryPair.a)} argues that the other side cannot be trusted, while ${name(rivalryPair.b)} pushes back. The rest of the group quietly takes notes on the fallout.`;
+    } else if(topic==='campaign'&&n.length){
+      text=`${A}, ${B}, and the rest of the group compare the eviction numbers. They name specific voters, distinguish firm commitments from soft promises, and debate whether keeping ${name(n[0])} or ${name(n[1]||n[0])} creates the better house structure next week. Nobody wants to be the first person to expose their real vote.`;
+    } else if(topic==='alliance'){
+      text=`A larger group gathers to compare notes about the alliance structure. ${names.slice(0,4).join(', ')} each bring information from different conversations, and the group notices that some stories do not line up. They debate whether to stay loyal, quietly build a side relationship, or keep options open in case the next HOH changes everything.`;
+    } else if(topic==='paranoia'){
+      text=`The group starts with casual conversation but drifts into a house-wide information check. ${names.slice(0,5).join(', ')} trade rumors, compare who has been spending time together, and try to determine whether a new deal exists that they have not been told about. Several people leave the conversation with different interpretations of what they just heard.`;
+    } else if(topic==='personal'){
+      text=`The room is unusually full. ${names.slice(0,5).join(', ')} bounce between stories about life outside the house, jokes, food, routines, and memories. The conversation feels less strategic at first, but individual personalities and existing friendships still shape who talks, who listens, and who gets pulled into side conversations afterward.`;
+    } else {
+      text=`${names.slice(0,6).join(', ')} settle into a longer group conversation. The topic moves naturally between the week's events, personal stories, competition expectations, and what everyone thinks the house will look like after the next eviction. Different people talk more openly than they would in a one-on-one, while others mostly listen and remember what was said.`;
+    }
+    return text+ctxSentence(s,people);
+  }
+  function continuitySentence(s,people){
+    const st=s._feedStory||{};
+    if(!st.lastEvent)return '';
+    return ` Earlier in the day, the house was already talking about ${st.lastEvent}, so this conversation picks up some of that unresolved tension rather than starting from scratch.`;
+  }
   function strategyText(s,a,b,topic){
     const n=nominees(s),hoh=byId(s,s.currentHOH),ally=allianceMate(s,a),enemy=rival(s,a,[b?.id]);
     const A=name(a),B=name(b);
@@ -121,8 +154,54 @@
     const apps=s.bb20Twists?.apps||{};
     if(apps.cloudUsed&&topic!=='personal')text+=` The house is also reacting to the consequences of The Cloud being used this week, even though the exact power-holder decision may not be publicly understood.`;
     if(apps.identityTheftUsed&&topic!=='personal')text+=` The nomination picture has been complicated by a secret Identity Theft move, so several Houseguests are comparing stories about how the block changed.`;
+    const incidents=(s.feedGameIncidents||[]).filter(x=>Number(x.week||0)<=Number(s.week||0));
+    const recent=incidents[incidents.length-1];
+    if(recent)text+=` The aftermath of ${recent.summary.replace(/\.$/,'')} is still affecting the group's trust and game conversations.`;
     return makeUpdate(s,minute,text,group,`group-${topic}`);
   }
+
+  function applyPairDamage(s,a,b,amount=10){
+    if(!a||!b||!s.relationships?.[a.id]?.[b.id])return;
+    const clamp=v=>Math.max(0,Math.min(100,v));
+    [[a,b],[b,a]].forEach(([x,y])=>{
+      const r=s.relationships[x.id][y.id];
+      r.rivalry=clamp(Number(r.rivalry||0)+amount);
+      r.trust=clamp(Number(r.trust||50)-Math.round(amount*.8));
+      r.loyalty=clamp(Number(r.loyalty||50)-Math.round(amount*.6));
+      r.friendship=clamp(Number(r.friendship||50)-Math.round(amount*.45));
+      r.respect=clamp(Number(r.respect||50)-Math.round(amount*.15));
+    });
+  }
+  LiveFeeds.applyGameConsequences=function(s,week){
+    if(!s||!Array.isArray(s.houseguests))return;
+    const people=active(s); if(people.length<4)return;
+    s.feedGameIncidents=Array.isArray(s.feedGameIncidents)?s.feedGameIncidents:[];
+    const nominees=nomineesFn(s),hoh=byId(s,s.currentHOH);
+    const pairs=[];
+    people.forEach(a=>people.forEach(b=>{
+      if(a.id>=b.id)return;
+      const r=rel(s,a,b);
+      pairs.push({a,b,r,score:Number(r.rivalry||0)*.55+(100-Number(r.trust||50))*.20+(100-Number(r.loyalty||50))*.12+Math.random()*12});
+    }));
+    pairs.sort((a,b)=>b.score-a.score);
+    let incident=null;
+    const strongest=pairs[0];
+    if(strongest && strongest.score>=48 && Math.random()<.28){
+      incident={type:'major-fight',participants:[strongest.a.id,strongest.b.id],summary:`${name(strongest.a)} and ${name(strongest.b)} had a major argument that changed how they view each other.`};
+      applyPairDamage(s,strongest.a,strongest.b,12);
+    } else if(hoh&&nominees.length && Math.random()<.16){
+      const target=nominees.slice().sort((a,b)=>socialScore(s,hoh,b)-socialScore(s,hoh,a))[0];
+      if(target&&target.id!==hoh.id){
+        incident={type:'nomination-fallout',participants:[hoh.id,target.id],summary:`${name(hoh)} and ${name(target)} had a heated confrontation over the nomination decision.`};
+        applyPairDamage(s,hoh,target,9);
+      }
+    }
+    if(incident){
+      incident.week=week; incident.createdAt=`Week ${week}`; s.feedGameIncidents.push(incident);
+    }
+  };
+
+  function nomineesFn(s){return nominees(s);}
 
   function continuityEvent(s,story){
     const n=nominees(s),hoh=byId(s,s.currentHOH), people=active(s);
