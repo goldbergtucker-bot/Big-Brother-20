@@ -31,7 +31,6 @@
     d.participants=ids(e.participants||d.participants);d.nomineeIds=ids(e.nomineeIds||d.nomineeIds||s.nominees);
     d.povPlayers=ids(e.povPlayers||d.povPlayers||s.povPlayers);
     d.winnerId=e.winnerId||d.winnerId||null;d.hohId=e.hohId||d.hohId||s.currentHOH||null;d.evictedId=e.evictedId||d.evictedId||null;
-    if(e.type==="nominations"){d.identityTheftUsed=!!(e.identityTheftUsed??d.identityTheftUsed);d.identityTheftHolderId=e.identityTheftHolderId||d.identityTheftHolderId||null;d.nominationOverridden=!!(e.identityTheftUsed||d.identityTheftUsed);}
     if(e.type==="veto-ceremony"){d.vetoUsed=!!(e.vetoUsed??d.vetoUsed);d.finalNomineeIds=ids(e.finalNomineeIds||d.finalNomineeIds||s.nominees);}
     if(e.type==="eviction-voting"){d.votes=(s.evictionVotes||[]).map(v=>({...v}));d.voterIds=d.votes.map(v=>v.voterId);}
     if(e.type==="eviction"){d.voteCounts={...(e.voteCounts||{})};d.tieBreakVoteId=e.tieBreakVoteId||null;d.evictedVoteCount=Number(e.evictedVoteCount||0);}
@@ -141,7 +140,7 @@
     if(!noms.some(n=>n.id===holder.id))return noms;
     const r=s.relationships?.[hoh.id]?.[holder.id]||{};
     const targetRisk=(100-Number(r.trust||50))*.20+(100-Number(r.loyalty||50))*.12+Number(r.rivalry||0)*.42+Number(holder.ratings?.strategic||50)*.10+Number(holder.ratings?.physical||50)*.06;
-    const useChance=Math.max(.12,Math.min(.72,.22+targetRisk/190));
+    const useChance=Math.max(.18,Math.min(.88,.28+targetRisk/150));
     if(Math.random()>useChance){
       log(s,{week,phase:s.phase,type:"power-decision",winnerId:holder.id,title:"The Cloud — Held",lines:[`${displayName(holder)} is eligible to activate The Cloud but decides not to use it this week, preserving the power for a more dangerous nomination or Veto meeting.`]});
       return noms;
@@ -155,10 +154,10 @@
 
   function applyIdentityTheft(s,hoh,noms,week){
     const app=s.bb20Twists.apps||{},holder=hg(s,app.identityTheftHolderId);
-    if(!holder||!holder.active||app.identityTheftUsed||holder.id===hoh.id||week>10)return noms;
+    if(!holder||!holder.active||app.identityTheftUsed||holder.id===hoh.id)return noms;
     const hr=s.relationships?.[hoh.id]?.[holder.id]||{},nominated=noms.some(n=>n.id===holder.id);
     const risk=Number(hr.rivalry||0)*.45+(100-Number(hr.trust||50))*.18+(100-Number(hr.loyalty||50))*.12+(nominated?42:0)+(Number(holder.ratings?.strategic||50)-50)*.10;
-    const useChance=Math.max(.01,Math.min(.16,.008+risk/2000));
+    const useChance=Math.max(.10,Math.min(.62,.16+risk/180));
     if(Math.random()>useChance){
       log(s,{week,phase:s.phase,type:"power-decision",winnerId:holder.id,title:"Identity Theft — Held",lines:[`${displayName(holder)} secretly has Identity Theft available but decides not to use it this week.`]});
       return noms;
@@ -171,33 +170,14 @@
       return {target,score:threat+Number(r.rivalry||0)*.35-(Number(r.friendship||50)+Number(r.trust||50))*.12-(ally?35:0)+Math.random()*8};
     }).sort((a,b)=>b.score-a.score);
     const chosen=scored.slice(0,2).map(x=>x.target); if(chosen.length<2)return noms;
-    app.identityTheftUsed=true; app.identityTheftUsedWeek=week;
-    noms.forEach(n=>n.nominated=false); chosen.forEach(n=>n.nominated=true);
-    s.nominees=chosen.map(n=>n.id);
-    s.nominationControllerId=holder.id;
-    s.nominationOverridden=true;
-    s.intendedTarget=displayName(chosen[0]); s.intendedTargetId=chosen[0].id;
-    s.targetHistory=[{text:displayName(chosen[0]),reason:"Identity Theft — secret nomination"}]; s.backdoorTargetId=null;
-    log(s,{week,phase:s.phase,type:"power-use",winnerId:holder.id,title:"Identity Theft — Power Used",nomineeIds:s.nominees,identityTheftUsed:true,identityTheftHolderId:holder.id,lines:[`${displayName(holder)} secretly activates Identity Theft before the Nomination Ceremony.`,`${displayName(holder)} secretly nominates ${displayName(chosen[0])} and ${displayName(chosen[1])}.`,`The HOH does not choose the initial nominees; the HOH retains control only over later Veto replacement decisions.`]});
+    app.identityTheftUsed=true; noms.forEach(n=>n.nominated=false); chosen.forEach(n=>n.nominated=true); s.nominees=chosen.map(n=>n.id);
+    s.intendedTarget=displayName(chosen[0]); s.intendedTargetId=chosen[0].id; s.targetHistory=[{text:displayName(chosen[0]),reason:"Identity Theft — secret replacement nominations"}]; s.backdoorTargetId=null;
+    log(s,{week,phase:s.phase,type:"power-use",winnerId:holder.id,title:"Identity Theft — Power Used",lines:[`${displayName(holder)} secretly activates Identity Theft and replaces the HOH's nominations.`,`${displayName(holder)} secretly nominates ${displayName(chosen[0])} and ${displayName(chosen[1])}.`,`The HOH retains control over later replacement nominations.`]});
     return chosen;
   }
 
   function runNominations(s,week){
-    const hoh=hg(s,s.currentHOH);
-    s.nominationControllerId=null; s.nominationOverridden=false; s.preplannedBackdoorId=null; s.preplannedBackdoorReason=null;
-    // Decide on a possible backdoor BEFORE choosing the initial nominees.
-    // If the HOH chooses this route, the nomination AI deliberately keeps the
-    // planned target off the initial block and looks for safer nominees.
-    if(R()?.planBackdoor){
-      try {
-        const prePlan=R().planBackdoor(s,hoh,[]);
-        if(prePlan?.use&&prePlan.target){
-          s.preplannedBackdoorId=prePlan.target.id;
-          s.preplannedBackdoorReason=prePlan.reason;
-        }
-      } catch(e) { console.warn("BB20 pre-nomination backdoor planner skipped:",e); }
-    }
-    let noms=chooseNominees(s,hoh,week);
+    const hoh=hg(s,s.currentHOH);let noms=chooseNominees(s,hoh,week);
     noms=applyCloud(s,hoh,noms,week);
     noms=applyIdentityTheft(s,hoh,noms,week);
     noms.forEach(n=>n.nominated=true);s.nominees=noms.map(n=>n.id);
@@ -214,7 +194,7 @@
       return !(Number(r.rivalry || 0) >= 78 && Number(r.trust || 50) <= 30 && Number(r.loyalty || 50) <= 30);
     };
     const availableNonAllies = living(s).filter(h => h.id !== hoh.id && !h.safe && !isProtectedAlly(h) && !noms.some(n => n.id === h.id));
-    if (!s.nominationOverridden && availableNonAllies.length) {
+    if (availableNonAllies.length) {
       for (let i = 0; i < noms.length; i++) {
         if (!isProtectedAlly(noms[i])) continue;
         const replacement = availableNonAllies.shift();
@@ -231,21 +211,18 @@
     const target=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0];
     s.intendedTarget=target?displayName(target):null;
     s.intendedTargetId=target?.id||null;
-    s.targetHistory=[{text:s.intendedTarget,reason:s.nominationOverridden?"Identity Theft — secret nomination":"Initial target"}];
+    s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
     s.backdoorTargetId=null;
-    s.nominationStrategy=s.nominationOverridden?{type:"identity-theft",holderId:s.nominationControllerId}:null;
-    if(!s.nominationOverridden && s.preplannedBackdoorId){
-      const planned=hg(s,s.preplannedBackdoorId);
-      if(planned&&planned.active&&!s.nominees.includes(planned.id)){
-        s.backdoorTargetId=planned.id;
-        s.targetHistory.push({text:displayName(planned),reason:`Backdoor plan — ${s.preplannedBackdoorReason||"strategic threat"}`});
+    s.nominationStrategy=null;
+    if(R()?.planBackdoor){
+      let plan=null;
+      try { plan=R().planBackdoor(s,hoh,noms); } catch(e) { console.warn("BB20 backdoor planner skipped:",e); }
+      if(plan?.use&&plan.target){
+        s.backdoorTargetId=plan.target.id;
+        s.targetHistory.push({text:displayName(plan.target),reason:`Backdoor plan — ${plan.reason}`});
       }
     }
-    const identityHolder=s.nominationControllerId?hg(s,s.nominationControllerId):null;
-    const ceremonyLines=s.nominationOverridden
-      ? [`${displayName(identityHolder)} used Identity Theft before the ceremony and secretly nominated ${noms.map(displayName).join(" and ")}.`,`${displayName(hoh)} is HOH, but does not choose the initial nominees this week.`]
-      : [`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`,s.nominationStrategy?.type==='duo'?`The HOH deliberately nominates the duo together as a strategic pair.`:"",s.backdoorTargetId?`The HOH is considering a backdoor against ${displayName(hg(s,s.backdoorTargetId))}.`:""];
-    log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,backdoorTargetId:s.backdoorTargetId||null,targetHistory:s.targetHistory,nominationStrategy:s.nominationStrategy||null,identityTheftUsed:!!s.nominationOverridden,identityTheftHolderId:s.nominationControllerId||null,title:s.nominationOverridden?"Nomination Ceremony — Identity Theft":"Nomination Ceremony",lines:ceremonyLines.filter(Boolean)});
+    log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,backdoorTargetId:s.backdoorTargetId||null,targetHistory:s.targetHistory,nominationStrategy:s.nominationStrategy||null,title:"Nomination Ceremony",lines:[`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`,s.nominationStrategy?.type==='duo'?`The HOH deliberately nominates the duo together as a strategic pair.`:"",s.backdoorTargetId?`The HOH is considering a backdoor against ${displayName(hg(s,s.backdoorTargetId))}.`:""] .filter(Boolean)});
   }
 
   function selectPOVPlayers(s,week,forcedId=null){
@@ -253,7 +230,7 @@
     let pool=living(s).filter(p=>p.id===hoh.id||noms.some(n=>n.id===p.id));
     const extras=shuffle(living(s).filter(p=>!pool.some(x=>x.id===p.id))).slice(0,3);
     pool=pool.concat(extras);
-    if(forcedId){const forced=hg(s,forcedId);if(forced&&forced.active&&!pool.some(p=>p.id===forced.id)){pool[pool.length-1]=forced;}}
+    if(forcedId){const forced=hg(s,forcedId);const nomineeIds=new Set(s.nominees);if(forced&&forced.active&&forced.id!==hoh.id&&!nomineeIds.has(forced.id)){if(!pool.some(p=>p.id===forced.id)){pool[pool.length-1]=forced;}}}
     s.povPlayers=pool.map(p=>p.id);
     log(s,{week,phase:s.phase,type:"pov-players",hohId:hoh.id,nomineeIds:s.nominees,povPlayers:s.povPlayers,participants:s.povPlayers,title:"Power of Veto Players",lines:[`${pool.map(displayName).join(", ")} compete for the Power of Veto.`]});
     return pool;
@@ -298,7 +275,7 @@
 
   function runHacker(s,week){
     if(!CFG().hackerWeeks.includes(week))return null;
-    const pool=living(s).filter(h=>h.id!==s.currentHOH.id);
+    const pool=living(s).filter(h=>h.id!==s.currentHOH.id&&h.active);
     if(!pool.length)return null;
     const comp=C().runCompetition(pool,{week,type:"hacker"}),hacker=comp.winner;
     const noms=s.nominees.map(id=>hg(s,id)).filter(Boolean);
@@ -307,7 +284,7 @@
     if(noms.length){
       removed=noms.slice().sort((a,b)=>relationshipScore(s,hacker,a)-relationshipScore(s,hacker,b))[0];
       removed.nominated=false;
-      const replPool=others.filter(p=>p.id!==hacker.id&&!p.safe);
+      const replPool=others.filter(p=>p.id!==hacker.id&&p.id!==s.currentHOH.id&&!s.nominees.includes(p.id)&&!p.safe&&p.active);
       // The H@cker is also a player making a strategic nomination. Do not let
       // the anonymous replacement randomly land on the H@cker's own ally when
       // another eligible houseguest is available.
@@ -319,8 +296,18 @@
       replacement=pick(nonAllyPool.length?nonAllyPool:replPool);
       if(replacement){replacement.nominated=true;s.nominees=s.nominees.filter(id=>id!==removed.id).concat(replacement.id);}
     }
-    const forced=pick(living(s).filter(p=>p.id!==s.currentHOH.id));
+    const nomineeIds=new Set(s.nominees);
+    const forcedPool=living(s).filter(p=>p.id!==s.currentHOH.id&&!nomineeIds.has(p.id)&&p.active&&!p.safe);
+    const forced=pick(forcedPool);
     if(forced && !s.povPlayers.includes(forced.id)){s.povPlayers.push(forced.id);}
+    // Hard legality guard: the HOH can never be the Hacker replacement nominee,
+    // and a current nominee can never be the Hacker-selected additional Veto player.
+    if(replacement && (replacement.id===s.currentHOH.id || s.nominees.includes(replacement.id))){
+      replacement=null;
+    }
+    if(forced && (forced.id===s.currentHOH.id || s.nominees.includes(forced.id))){
+      forced=null;
+    }
     s.bb20Twists.hacker={week,hackerId:hacker.id,replacedId:removed?.id||null,replacementId:replacement?.id||null,forcedPovPlayerId:forced?.id||null};
     log(s,{week,phase:s.phase,type:"hacker",winnerId:hacker.id,participants:pool.map(p=>p.id),competition:comp,title:`H@cker Competition — ${comp.label}`,lines:[`The H@cker is anonymous to the house.`,removed&&replacement?`${displayName(hacker)} secretly removes ${displayName(removed)} from the block and replaces them with ${displayName(replacement)}.`:"The H@cker leaves the nominations unchanged.",forced?`${displayName(hacker)} secretly selects ${displayName(forced)} to play in the Veto.`:"No additional Veto player is selected.","The H@cker may also nullify one eviction vote."]});
     return hacker;
@@ -421,9 +408,6 @@
     const pov=runPOV(s,week,"pov",forced);applyVeto(s,week,pov);
     const e=evictionCycle(s,week);
     if(e)bonusLifeCheck(s,e,week);
-    if(window.LiveFeeds?.applyGameConsequences)window.LiveFeeds.applyGameConsequences(s,week);
-    if(R()?.pruneAlliances)R().pruneAlliances(s);
-    if(R()?.formAlliances && living(s).length>=5 && Math.random()<0.55)R().formAlliances(s,week);
     return e;
   }
 
@@ -442,9 +426,6 @@
     runNominations(s,week);
     const pov=runPOV(s,week,"pov-double");applyVeto(s,week,pov);
     evictionCycle(s,week);
-    if(window.LiveFeeds?.applyGameConsequences)window.LiveFeeds.applyGameConsequences(s,week);
-    if(R()?.pruneAlliances)R().pruneAlliances(s);
-    if(R()?.formAlliances && living(s).length>=5 && Math.random()<0.45)R().formAlliances(s,week);
   }
 
   function runSurpriseEviction(s,week){
@@ -456,8 +437,6 @@
     const comp=C().runCompetition(pool,{week,type:"hoh-double"}),hoh=comp.winner;s.currentHOH=hoh.id;s._priorHohIds=[hoh.id];
     log(s,{week,phase:s.phase,type:"hoh",round:2,winnerId:hoh.id,participants:pool.map(p=>p.id),competition:comp,title:`Surprise Eviction — HOH — ${comp.label}`,lines:[`${displayName(hoh)} wins the surprise second HOH.`]});
     runNominations(s,week);const pov=runPOV(s,week,"pov-double");applyVeto(s,week,pov);evictionCycle(s,week);
-    if(R()?.pruneAlliances)R().pruneAlliances(s);
-    if(R()?.formAlliances && living(s).length>=5 && Math.random()<0.45)R().formAlliances(s,week);
   }
 
   function runBattleBack(s){
@@ -505,9 +484,6 @@
       // episode/timeline order. The same rule is used for Weeks 2 and 3.
       appStoreRound(s,1);
       runNominations(s,1);const pov=runPOV(s,1,"pov");applyVeto(s,1,pov);const e=evictionCycle(s,1);if(e)bonusLifeCheck(s,e,1);
-      if(window.LiveFeeds?.applyGameConsequences)window.LiveFeeds.applyGameConsequences(s,1);
-      if(R()?.pruneAlliances)R().pruneAlliances(s);
-      if(R()?.formAlliances && living(s).length>=5 && Math.random()<0.55)R().formAlliances(s,1);
     }
     let week=2,guard=0;
     while(living(s).length>3&&week<=13&&guard<25){
