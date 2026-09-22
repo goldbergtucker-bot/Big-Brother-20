@@ -377,13 +377,44 @@
     const forcedPool=living(s).filter(p=>p.id!==s.currentHOH.id&&!nomineeIds.has(p.id)&&p.active&&!p.safe);
     const forced=pick(forcedPool);
     if(forced && !s.povPlayers.includes(forced.id)){s.povPlayers.push(forced.id);}
-    // Hard legality guard: the HOH can never be the Hacker replacement nominee,
-    // and a current nominee can never be the Hacker-selected additional Veto player.
-    if(replacement && (replacement.id===s.currentHOH.id || s.nominees.includes(replacement.id))){
+    // FINAL BB20 HACKER LEGALITY PASS. The reigning HOH is never eligible
+    // to be a Hacker nominee or a Hacker-selected Veto player. This pass is
+    // deliberately performed after every nomination mutation so a stale or
+    // corrupted nominee list cannot leak the HOH into the block.
+    const hohId=s.currentHOH.id;
+    if(replacement && (replacement.id===hohId || s.nominees.includes(replacement.id))){
       replacement=null;
     }
-    if(forced && (forced.id===s.currentHOH.id || s.nominees.includes(forced.id))){
+    if(forced && (forced.id===hohId || s.nominees.includes(forced.id))){
       forced=null;
+    }
+
+    // If the nominee list somehow contains the HOH, immediately remove the
+    // HOH and replace that slot with a legal active houseguest. This is a hard
+    // invariant, not a strategic choice.
+    if(s.nominees.includes(hohId)){
+      const illegalHoH=hg(s,hohId);
+      if(illegalHoH) illegalHoH.nominated=false;
+      s.nominees=s.nominees.filter(id=>id!==hohId);
+      const fillPool=living(s).filter(p=>
+        p.id!==hohId &&
+        p.id!==hacker.id &&
+        !s.nominees.includes(p.id) &&
+        !p.safe &&
+        p.active
+      );
+      const fill=pick(fillPool);
+      if(fill){
+        fill.nominated=true;
+        s.nominees.push(fill.id);
+        replacement=fill;
+      }
+    }
+
+    // Keep the Hacker replacement reference synchronized with the final legal
+    // nominee list, and never record the HOH as the replacement.
+    if(replacement?.id===hohId || !s.nominees.includes(replacement?.id)){
+      replacement=null;
     }
     s.bb20Twists.hacker={week,hackerId:hacker.id,replacedId:removed?.id||null,replacementId:replacement?.id||null,forcedPovPlayerId:forced?.id||null};
     log(s,{week,phase:s.phase,type:"hacker",winnerId:hacker.id,participants:pool.map(p=>p.id),competition:comp,title:`H@cker Competition — ${comp.label}`,lines:[`The H@cker is anonymous to the house.`,removed&&replacement?`${displayName(hacker)} secretly removes ${displayName(removed)} from the block and replaces them with ${displayName(replacement)}.`:"The H@cker leaves the nominations unchanged.",forced?`${displayName(hacker)} secretly selects ${displayName(forced)} to play in the Veto.`:"No additional Veto player is selected.","The H@cker may also nullify one eviction vote."]});
