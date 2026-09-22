@@ -196,7 +196,55 @@
   }
 
   function runNominations(s,week){
-    const hoh=hg(s,s.currentHOH);let noms=chooseNominees(s,hoh,week);
+    const hoh=hg(s,s.currentHOH);
+    // Decide on the week's strategic plan BEFORE the nominations are made.
+    // The previous implementation asked the backdoor planner to inspect the
+    // already-selected nominees, which made the planner reject most weeks as
+    // soon as one of those nominees looked like the obvious target. That made
+    // intentional backdoors effectively disappear from the simulation.
+    s.backdoorTargetId=null;
+    s._plannedBackdoor=null;
+    if(R()?.planBackdoor && !s._identityTheftActive){
+      try {
+        const prePlan=R().planBackdoor(s,hoh,[]);
+        if(prePlan?.use&&prePlan.target){
+          s._plannedBackdoor=prePlan;
+          s.backdoorTargetId=prePlan.target.id;
+        }
+      } catch(e) { console.warn("BB20 pre-nomination backdoor planner skipped:",e); }
+    }
+    let noms=chooseNominees(s,hoh,week);
+
+    // A planned backdoor requires two people the HOH is willing to leave on
+    // the block as pawns. If the planned target was accidentally selected by
+    // ordinary nomination scoring, replace that target with a safer pawn.
+    if(s._plannedBackdoor?.target){
+      const target=s._plannedBackdoor.target;
+      if(noms.some(n=>n.id===target.id)){
+        const pawnPool=living(s).filter(p=>
+          p.id!==hoh.id && p.id!==target.id && !p.safe && !noms.some(n=>n.id===p.id)
+        );
+        const protectedPawnPool=pawnPool.filter(p=>{
+          if(!R()?.isAllyOf?.(s,hoh.id,p.id)) return true;
+          const r=s.relationships?.[hoh.id]?.[p.id]||{};
+          return Number(r.rivalry||0)>=78 && Number(r.trust||50)<=30 && Number(r.loyalty||50)<=30;
+        });
+        const candidates=protectedPawnPool.length?protectedPawnPool:pawnPool;
+        if(candidates.length){
+          candidates.sort((a,b)=>{
+            const score=p=>{
+              const r=s.relationships?.[hoh.id]?.[p.id]||{};
+              const bond=(Number(r.friendship||50)+Number(r.trust||50)+Number(r.loyalty||50)+Number(r.respect||50)-Number(r.rivalry||0))/4;
+              const threat=(Number(p.ratings?.strategic||50)*.42+Number(p.ratings?.physical||50)*.20+Number(p.ratings?.mental||50)*.12);
+              return bond-threat*.35+Math.random()*3;
+            };
+            return score(b)-score(a);
+          });
+          noms[noms.findIndex(n=>n.id===target.id)]=candidates[0];
+        }
+      }
+    }
+
     noms=applyCloud(s,hoh,noms,week);
     noms=applyIdentityTheft(s,hoh,noms,week);
     noms.forEach(n=>n.nominated=true);s.nominees=noms.map(n=>n.id);
@@ -237,21 +285,21 @@
     s.intendedTarget=target?displayName(target):null;
     s.intendedTargetId=target?.id||null;
     s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
-    s.backdoorTargetId=null;
     s.nominationStrategy=null;
     if(s._identityTheftActive){
+      // Identity Theft owns the initial nominations and therefore cancels any
+      // HOH backdoor plan for this ceremony.
+      s.backdoorTargetId=null;
+      s._plannedBackdoor=null;
       s.nominationStrategy={type:"identity-theft",holderId:s.bb20Twists.apps.identityTheftHolderId};
-    }
-    if(R()?.planBackdoor && !s._identityTheftActive){
-      let plan=null;
-      try { plan=R().planBackdoor(s,hoh,noms); } catch(e) { console.warn("BB20 backdoor planner skipped:",e); }
-      if(plan?.use&&plan.target){
-        s.backdoorTargetId=plan.target.id;
-        s.targetHistory.push({text:displayName(plan.target),reason:`Backdoor plan — ${plan.reason}`});
-      }
+    } else if(s._plannedBackdoor?.target){
+      s.backdoorTargetId=s._plannedBackdoor.target.id;
+      s.nominationStrategy={type:"backdoor",targetId:s.backdoorTargetId,reason:s._plannedBackdoor.reason};
+      s.targetHistory.push({text:displayName(s._plannedBackdoor.target),reason:`Backdoor plan — ${s._plannedBackdoor.reason}`});
     }
     log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,backdoorTargetId:s.backdoorTargetId||null,targetHistory:s.targetHistory,nominationStrategy:s.nominationStrategy||null,title:"Nomination Ceremony",lines:[s._identityTheftActive?`The Identity Theft holder secretly controls the initial nominations: ${noms.map(displayName).join(" and ")}. The HOH retains control of any replacement nomination after the Veto.`:`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`,s.nominationStrategy?.type==='duo'?`The HOH deliberately nominates the duo together as a strategic pair.`:"",s.backdoorTargetId?`The HOH is considering a backdoor against ${displayName(hg(s,s.backdoorTargetId))}.`:""] .filter(Boolean)});
     s._identityTheftActive=false;
+    s._plannedBackdoor=null;
   }
 
   function selectPOVPlayers(s,week,forcedId=null){
