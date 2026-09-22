@@ -411,12 +411,19 @@
     if(tops.length>1){tie=evictedId;}
     const evicted=hg(s,evictedId);
     log(s,{week,phase:s.phase,type:"eviction-voting",nomineeIds:noms.map(n=>n.id),voterIds:voters.map(v=>v.id),votes:s.evictionVotes,title:"Eviction Vote",lines:s.evictionVotes.map(v=>`${displayName(hg(s,v.voterId))} votes to evict ${displayName(hg(s,v.targetId))}.`)});
-    evicted.active=false;evicted.evicted=true;s.season.evictionCount++;evicted.placement=s.season.castSize-s.season.evictionCount+1;
+    evicted.active=false;evicted.evicted=true;s.season.evictionCount++;
+    s._permanentEvictionOrder=s._permanentEvictionOrder||[];
+    if(!s._permanentEvictionOrder.includes(evicted.id))s._permanentEvictionOrder.push(evicted.id);
     const threshold=CFG().juryThresholdPlacement||11;
-    if(evicted.placement<=threshold&&!s.jury.includes(evicted.id)){evicted.juryMember=true;s.jury.push(evicted.id);}
+    const juryStartCount=Math.max(1,s.season.castSize-threshold+1);
+    if(s._permanentEvictionOrder.length>=juryStartCount&&!s.jury.includes(evicted.id)){evicted.juryMember=true;s.jury.push(evicted.id);}
+    evicted.placement=null;
     s.evicted.push(evicted.id);
     s.bb20Twists.apps&&(s.bb20Twists.apps.earlyEvictions=(s.bb20Twists.apps.earlyEvictions||0)+1);
-    log(s,{week,phase:s.phase,type:"eviction",evictedId:evicted.id,voteCounts:counts,evictedVoteCount:counts[evictedId],tieBreakVoteId:tie,nomineeIds:noms.map(n=>n.id),title:"Eviction",lines:[`By a vote, ${displayName(evicted)} has been evicted.`,evicted.juryMember?`${displayName(evicted)} joins the jury.`:`${displayName(evicted)} finishes in ${ordinal(evicted.placement)} place.`]});
+    const evictedVotes=Number(counts[evictedId]||0);
+    const totalCountedVotes=Object.values(counts).reduce((sum,n)=>sum+Number(n||0),0);
+    const stayVoteCount=Math.max(0,totalCountedVotes-evictedVotes);
+    log(s,{week,phase:s.phase,type:"eviction",evictedId:evicted.id,voteCounts:counts,evictedVoteCount:evictedVotes,stayVoteCount,tieBreakVoteId:tie,nomineeIds:noms.map(n=>n.id),title:"Eviction",lines:[`By a vote, ${displayName(evicted)} has been evicted.`,evicted.juryMember?`${displayName(evicted)} joins the jury.`:`${displayName(evicted)} finishes in ${ordinal(evicted.placement)} place.`]});
     s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.evictionVotes=[];s.bb20Twists.hacker=null;
     return evicted;
   }
@@ -525,7 +532,7 @@
     if(jurors.length<2)return;
     const comp=C().runCompetition(jurors,{week:10,type:"battleback"});
     const winner=comp.winner;winner.active=true;winner.evicted=false;winner.juryMember=false;winner.placement=null;
-    s.evicted=s.evicted.filter(id=>id!==winner.id);s.jury=s.jury.filter(id=>id!==winner.id);s.season.evictionCount=Math.max(0,s.season.evictionCount-1);
+    s.evicted=s.evicted.filter(id=>id!==winner.id);s.jury=s.jury.filter(id=>id!==winner.id);s._permanentEvictionOrder=(s._permanentEvictionOrder||[]).filter(id=>id!==winner.id);s.season.evictionCount=Math.max(0,s.season.evictionCount-1);
     s.bb20Twists.battleBackWinnerId=winner.id;
     log(s,{week:10,phase:"battleback",type:"battleback",winnerId:winner.id,participants:jurors.map(j=>j.id),competition:comp,title:`Jury Battle Back — ${comp.label}`,lines:[`${displayName(winner)} wins the Jury Battle Back and returns to the game.`,`The remaining jurors stay in the jury.`]});
   }
@@ -536,13 +543,16 @@
     const rem=three.filter(p=>p.id!==p1.winner.id),p2=C().runCompetition(rem,{week:13,type:"final-hoh-2"});log(s,{week:"Final",phase:"finale",type:"final3-part2",winnerId:p2.winner.id,participants:rem.map(p=>p.id),competition:p2,title:`Final HOH Part 2 — ${p2.label}`,lines:[`${displayName(p2.winner)} wins Part 2 and advances to Part 3.`]});
     const p3=C().runCompetition([p1.winner,p2.winner],{week:13,type:"final-hoh-3"}),finalHoh=p3.winner,other=three.filter(p=>p.id!==finalHoh.id),chosen=R().decideFinalTwoPick(s,finalHoh,other),third=other.find(p=>p.id!==chosen.id);
     log(s,{week:"Final",phase:"finale",type:"final3-part3",winnerId:finalHoh.id,participants:[p1.winner.id,p2.winner.id],competition:p3,title:`Final HOH Part 3 — ${p3.label}`,lines:[`${displayName(finalHoh)} wins Final HOH.`]});
-    third.active=false;third.evicted=true;third.placement=3;third.juryMember=true;if(!s.jury.includes(third.id))s.jury.push(third.id);s.evicted.push(third.id);
+    third.active=false;third.evicted=true;third.placement=null;third.juryMember=true;if(!s.jury.includes(third.id))s.jury.push(third.id);s.evicted.push(third.id);s._permanentEvictionOrder=s._permanentEvictionOrder||[];if(!s._permanentEvictionOrder.includes(third.id))s._permanentEvictionOrder.push(third.id);
     log(s,{week:"Final",phase:"finale",type:"final-decision",hohId:finalHoh.id,thirdPlaceId:third.id,finalistIds:[finalHoh.id,chosen.id],title:"Final HOH's Decision",lines:[`${displayName(finalHoh)} takes ${displayName(chosen)} to Final 2 and evicts ${displayName(third)}.`]});
     const finalists=[finalHoh,chosen],jurors=s.jury.map(id=>hg(s,id)).filter(Boolean),tally={[finalists[0].id]:0,[finalists[1].id]:0};s._juryVotes=[];
     jurors.forEach(j=>{const vote=R().decideJuryVote(s,j,finalists[0],finalists[1]);tally[vote]++;s._juryVotes.push({voterId:j.id,targetId:vote});});
     log(s,{week:"Final",phase:"finale",type:"jury-vote",votes:s._juryVotes,finalistIds:finalists.map(p=>p.id),title:"The Jury Votes",lines:s._juryVotes.map(v=>`${displayName(hg(s,v.voterId))} votes for ${displayName(hg(s,v.targetId))}.`)});
     const winnerId=tally[finalists[0].id]>=tally[finalists[1].id]?finalists[0].id:finalists[1].id,runnerId=winnerId===finalists[0].id?finalists[1].id:finalists[0].id;
     hg(s,winnerId).placement=1;hg(s,runnerId).placement=2;hg(s,winnerId).active=false;hg(s,runnerId).active=false;
+    const eliminationOrder=(s._permanentEvictionOrder||[]).filter(id=>id!==winnerId&&id!==runnerId);
+    eliminationOrder.slice().reverse().forEach((id,index)=>{const h=hg(s,id);if(h)h.placement=index+3;});
+    s.houseguests.forEach(h=>{if(h.placement>=3)h.juryMember=true;});
     const afpCandidates=s.houseguests.slice(),scores=afpCandidates.map(h=>{const avg=afpCandidates.filter(x=>x.id!==h.id).reduce((sum,o)=>sum+relationshipScore(s,h,o),0)/15;return{id:h.id,score:(h.ratings.social||50)*.45+(h.ratings.general||50)*.2+avg*.2+Math.random()*15};}).sort((a,b)=>b.score-a.score);
     const afpId=scores[0]?.id||winnerId,raw={};scores.forEach(x=>raw[x.id]=Math.max(.5,x.score));const total=Object.values(raw).reduce((a,b)=>a+b,0),afpVotes={};Object.keys(raw).forEach(id=>afpVotes[id]=Math.max(1,Math.round(raw[id]/total*100000)));const vt=Object.values(afpVotes).reduce((a,b)=>a+b,0);afpVotes[afpId]+=(100000-vt);
     s.finale={winnerId,runnerUpId:runnerId,thirdPlaceId:third.id,finalHohId:finalHoh.id,votes:tally,jurySize:jurors.length,prize:500000,runnerUpPrize:50000,americasFavoritePrize:25000,americasFavoriteId:afpId,americasFavoriteVotes:afpVotes};
@@ -551,7 +561,7 @@
   }
 
   function simulateSeason(s,config){
-    ensureState(s);s.history=[];s.jury=[];s.evicted=[];s.evictionVotes=[];s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.currentHOH=null;s.finale=null;s._priorHohIds=[];s.bb20Twists={};s.season.evictionCount=0;s.season.castSize=s.houseguests.length;
+    ensureState(s);s.history=[];s.jury=[];s.evicted=[];s.evictionVotes=[];s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.currentHOH=null;s.finale=null;s._priorHohIds=[];s.bb20Twists={};s._permanentEvictionOrder=[];s.season.evictionCount=0;s.season.castSize=s.houseguests.length;
     s.houseguests.forEach(h=>{h.active=true;h.safe=false;h.nominated=false;h.juryMember=false;h.evicted=false;h.placement=null;});
     randomizeRelationships(s);openingImmunity(s);initializeApps(s);
     const firstPool=eligibleHOH(s);if(firstPool.length){
