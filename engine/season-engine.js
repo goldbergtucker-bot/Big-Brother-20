@@ -473,38 +473,31 @@
     const app=s.bb20Twists.apps;if(!app||app.bonusLifeUsed||!evicted)return evicted;
     const holder=hg(s,app.bonusLifeHolderId);
     const earlyCount=app.earlyEvictions||0;
-    // The real Bonus Life gives ONE evicted Houseguest a solo re-entry challenge.
-    // It is not a battle against other Houseguests. The challenge is the
-    // life-size self-puzzle, with a 2:30 time limit.
+    // BB20-accurate deterministic outcome: Kaitlyn Herman received the
+    // automatic Bonus Life opportunity after the fourth eviction and FAILED
+    // the 2:30 puzzle. For this BB20 simulator, the Bonus Life therefore
+    // never returns a Houseguest and never changes the jury/battle-back path.
     const eligibleNow=(holder?.id===evicted.id&&earlyCount<=3)||(earlyCount===4);
     if(!eligibleNow)return evicted;
 
     app.bonusLifeUsed=true;
-    const score=(evicted.ratings?.mental||50)*0.45+(evicted.ratings?.general||50)*0.35+(evicted.ratings?.physical||50)*0.20;
-    const performance=score+(Math.random()*30-15);
-    const returned=performance>=65;
+    app.bonusLifeResult='failed';
     const comp={
       category:'mental',
       label:'Bonus Life — Outside The House',
       name:'Bonus Life — Outside The House',
       description:'Immediately after eviction, the evicted Houseguest must disassemble a life-size puzzle of themselves, move the pieces through the designated area, and reassemble the puzzle on the opposite side within 2 minutes and 30 seconds. They must complete the puzzle correctly and hit the buzzer before time expires. No other Houseguest competes in this challenge.',
-      winner:returned?evicted:null,
-      participants:[{id:evicted.id,score:Math.round(performance*10)/10}],
-      ranking:[{id:evicted.id,score:Math.round(performance*10)/10}],
-      official:true,week,type:'bonus-life'
+      winner:null,
+      participants:[{id:evicted.id,score:0}],
+      ranking:[{id:evicted.id,score:0}],
+      official:true,week,type:'bonus-life',result:'failed'
     };
-    if(returned){
-      evicted.active=true;evicted.evicted=false;evicted.placement=null;evicted.juryMember=false;evicted.safe=false;
-      s.evicted=s.evicted.filter(id=>id!==evicted.id);s.jury=s.jury.filter(id=>id!==evicted.id);
-      s.season.evictionCount=Math.max(0,(s.season.evictionCount||0)-1);
-      // A successful Bonus Life return cancels ONLY the later Jury Battle Back.
-      // The BB20 Double Eviction remains in effect.
-      s.bb20Twists.bonusLifeReturnOccurred=true;
-      s.bb20Twists.juryBattleBackCancelled=true;
-      log(s,{week,phase:s.phase,type:'bonus-life-return',winnerId:evicted.id,participants:[evicted.id],competition:comp,title:'Bonus Life — Outside The House',lines:[`${displayName(evicted)} has been evicted and must complete the Bonus Life puzzle alone.`,`The challenge is a life-size puzzle of ${displayName(evicted)} with a 2 minute 30 second time limit.`,`${displayName(evicted)} successfully completes the puzzle and returns to the game.`,`The Jury Battle Back will not occur later in the season, but the BB20 Double Eviction remains scheduled.`]});
-      return null;
-    }
-    log(s,{week,phase:s.phase,type:'bonus-life-return-failed',evictedId:evicted.id,participants:[evicted.id],competition:comp,title:'Bonus Life — Outside The House',lines:[`${displayName(evicted)} has been evicted and competes alone in the Bonus Life puzzle.`,`The challenge is a life-size puzzle of ${displayName(evicted)} with a 2 minute 30 second time limit.`,`${displayName(evicted)} does not complete the puzzle before time expires and remains evicted.`]});
+    // Never add the Bonus Life loser to the jury prematurely and never
+    // cancel the later Jury Battle Back. The normal eviction/jury logic has
+    // already determined whether this person is a juror.
+    s.bb20Twists.bonusLifeReturnOccurred=false;
+    s.bb20Twists.juryBattleBackCancelled=false;
+    log(s,{week,phase:s.phase,type:'bonus-life-return-failed',evictedId:evicted.id,participants:[evicted.id],competition:comp,title:'Bonus Life — Outside The House',lines:[`${displayName(evicted)} has been evicted and competes alone in the Bonus Life puzzle.`,`The challenge is a life-size puzzle of ${displayName(evicted)} with a 2 minute 30 second time limit.`,`${displayName(evicted)} does not complete the puzzle before time expires and remains evicted.`,`The Bonus Life does not return anyone to the game. The BB20 Jury Battle Back remains scheduled.`]});
     return evicted;
   }
 
@@ -565,10 +558,10 @@
   }
 
   function runBattleBack(s){
-    if(s.bb20Twists.juryBattleBackCancelled){
-      log(s,{week:10,phase:"battleback",type:"battleback-cancelled",title:"Jury Battle Back — Cancelled",lines:["The Bonus Life successfully returned a Houseguest earlier in the season.","Therefore the planned Jury Battle Back does not occur.","The Double Eviction is unaffected and still occurs on its scheduled week."]});
-      return;
-    }
+    // BB20-accurate deterministic format: the Bonus Life is known to fail,
+    // so the Jury Battle Back always occurs. Ignore any stale cancellation
+    // flag from an older saved state.
+    s.bb20Twists.juryBattleBackCancelled=false;
     const jurors=s.jury.map(id=>hg(s,id)).filter(Boolean).slice(0,4);
     if(jurors.length<2)return;
     const comp=C().runCompetition(jurors,{week:10,type:"battleback"});
