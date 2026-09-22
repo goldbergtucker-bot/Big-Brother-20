@@ -363,9 +363,20 @@
       return `${votes} Vote${votes===1?"":"s"}`;
     }
     if(p===3) return "Final HOH Decision";
-    const ev=history.find(e=>e.type==="eviction" && Number(e.data?.evictedPlacement||e.snapshot?.houseguests?.find(x=>x.id===e.data?.evictedId)?.placement)===p) ||
-      history.find(e=>e.type==="eviction" && e.data?.evictedId===h.id);
+    // Match the eviction directly to this Houseguest first. This is important
+    // after a Battle Back because placement numbers can change at the finale.
+    const ev=history.find(e=>e.type==="eviction" && (e.data?.evictedId||e.evictedId)===h.id);
     if(ev){
+      const evictionIndex=history.indexOf(ev);
+      const voteEvent=history.slice(0,evictionIndex).reverse().find(e=>e.type==="eviction-voting" && Number(e.week)===Number(ev.week));
+      const rawVotes=voteEvent?.data?.votes || voteEvent?.votes || [];
+      if(Array.isArray(rawVotes)&&rawVotes.length){
+        const targetId=ev.data?.evictedId||ev.evictedId;
+        const a=rawVotes.filter(v=>v.targetId===targetId).length;
+        const total=rawVotes.length;
+        const b=Math.max(0,total-a);
+        return `${a}-${b} Vote`;
+      }
       const a=Number(ev.data?.evictedVoteCount ?? ev.evictedVoteCount ?? 0);
       const b=Number(ev.data?.stayVoteCount ?? ev.stayVoteCount ?? 0);
       if(Number.isFinite(a)&&Number.isFinite(b)) return `${a}-${b} Vote`;
