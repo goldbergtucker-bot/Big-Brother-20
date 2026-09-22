@@ -464,7 +464,7 @@
     const evictedVotes=Number(counts[evictedId]||0);
     const totalCountedVotes=Object.values(counts).reduce((sum,n)=>sum+Number(n||0),0);
     const stayVoteCount=Math.max(0,totalCountedVotes-evictedVotes);
-    log(s,{week,phase:s.phase,type:"eviction",evictedId:evicted.id,voteCounts:counts,evictedVoteCount:evictedVotes,stayVoteCount,tieBreakVoteId:tie,nomineeIds:noms.map(n=>n.id),title:"Eviction",lines:[`By a vote of ${evictedVotes}-${stayVoteCount}, ${displayName(evicted)} has been evicted.`,tie?`${displayName(hoh)} casts the tiebreaking vote.`:"",evicted.juryMember?`${displayName(evicted)} joins the jury.`:`${displayName(evicted)} finishes in ${ordinal(evicted.placement)} place.`].filter(Boolean)});
+    log(s,{week,phase:s.phase,type:"eviction",evictedId:evicted.id,voteCounts:counts,evictedVoteCount:evictedVotes,stayVoteCount,tieBreakVoteId:tie,nomineeIds:noms.map(n=>n.id),title:"Eviction",lines:[`By a vote of ${evictedVotes}-${stayVoteCount}, ${displayName(evicted)} has been evicted.`,tie?`${displayName(hoh)} casts the tiebreaking vote.`:"",evicted.juryMember?`${displayName(evicted)} joins the jury.`:`${displayName(evicted)} has been evicted and is currently out of the game.`].filter(Boolean)});
     s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.evictionVotes=[];s.bb20Twists.hacker=null;
     return evicted;
   }
