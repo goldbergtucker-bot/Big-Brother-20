@@ -162,7 +162,17 @@
       log(s,{week,phase:s.phase,type:"power-decision",winnerId:holder.id,title:"Identity Theft — Held",lines:[`${displayName(holder)} secretly has Identity Theft available but decides not to use it this week.`]});
       return noms;
     }
-    const candidates=living(s).filter(p=>p.id!==hoh.id&&p.id!==holder.id&&!p.safe);
+    // Identity Theft replaces the HOH's *initial* nominations, so the two
+    // selections must be new nominees rather than simply re-selecting someone
+    // the HOH already put on the block. Keep the holder, HOH, and already-safe
+    // Houseguests ineligible.
+    const originalNomineeIds=new Set(noms.map(n=>n.id));
+    const candidates=living(s).filter(p=>
+      p.id!==hoh.id &&
+      p.id!==holder.id &&
+      !p.safe &&
+      !originalNomineeIds.has(p.id)
+    );
     if(candidates.length<2)return noms;
     const scored=candidates.map(target=>{
       const r=s.relationships?.[holder.id]?.[target.id]||{},ally=R()?.isAllyOf?.(s,holder.id,target.id);
@@ -170,8 +180,17 @@
       return {target,score:threat+Number(r.rivalry||0)*.35-(Number(r.friendship||50)+Number(r.trust||50))*.12-(ally?35:0)+Math.random()*8};
     }).sort((a,b)=>b.score-a.score);
     const chosen=scored.slice(0,2).map(x=>x.target); if(chosen.length<2)return noms;
-    app.identityTheftUsed=true; noms.forEach(n=>n.nominated=false); chosen.forEach(n=>n.nominated=true); s.nominees=chosen.map(n=>n.id);
-    s.intendedTarget=displayName(chosen[0]); s.intendedTargetId=chosen[0].id; s.targetHistory=[{text:displayName(chosen[0]),reason:"Identity Theft — secret replacement nominations"}]; s.backdoorTargetId=null;
+    app.identityTheftUsed=true;
+    // Mark this ceremony as an Identity Theft ceremony so the normal HOH
+    // ally-protection cleanup cannot silently undo the power's nominations.
+    s._identityTheftActive=true;
+    noms.forEach(n=>n.nominated=false);
+    chosen.forEach(n=>n.nominated=true);
+    s.nominees=chosen.map(n=>n.id);
+    s.intendedTarget=displayName(chosen[0]);
+    s.intendedTargetId=chosen[0].id;
+    s.targetHistory=[{text:displayName(chosen[0]),reason:"Identity Theft — secret replacement nominations"}];
+    s.backdoorTargetId=null;
     log(s,{week,phase:s.phase,type:"power-use",winnerId:holder.id,title:"Identity Theft — Power Used",lines:[`${displayName(holder)} secretly activates Identity Theft and replaces the HOH's nominations.`,`${displayName(holder)} secretly nominates ${displayName(chosen[0])} and ${displayName(chosen[1])}.`,`The HOH retains control over later replacement nominations.`]});
     return chosen;
   }
@@ -194,7 +213,10 @@
       return !(Number(r.rivalry || 0) >= 78 && Number(r.trust || 50) <= 30 && Number(r.loyalty || 50) <= 30);
     };
     const availableNonAllies = living(s).filter(h => h.id !== hoh.id && !h.safe && !isProtectedAlly(h) && !noms.some(n => n.id === h.id));
-    if (availableNonAllies.length) {
+    // Do not rewrite Identity Theft's secret nominations. The power holder,
+    // not the HOH's original nomination strategy, owns the initial block when
+    // the power is successfully activated.
+    if (!s._identityTheftActive && availableNonAllies.length) {
       for (let i = 0; i < noms.length; i++) {
         if (!isProtectedAlly(noms[i])) continue;
         const replacement = availableNonAllies.shift();
@@ -208,13 +230,19 @@
     // Keep the authoritative nominee IDs synchronized with the final names
     // shown in the nomination ceremony after any defensive replacement.
     s.nominees=noms.map(n=>n.id);
+    // Final authoritative synchronization: the ceremony, state, and every
+    // downstream POV/eviction routine all use this exact nominee list.
+    s.nominees=noms.map(n=>n.id);
     const target=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0];
     s.intendedTarget=target?displayName(target):null;
     s.intendedTargetId=target?.id||null;
     s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
     s.backdoorTargetId=null;
     s.nominationStrategy=null;
-    if(R()?.planBackdoor){
+    if(s._identityTheftActive){
+      s.nominationStrategy={type:"identity-theft",holderId:s.bb20Twists.apps.identityTheftHolderId};
+    }
+    if(R()?.planBackdoor && !s._identityTheftActive){
       let plan=null;
       try { plan=R().planBackdoor(s,hoh,noms); } catch(e) { console.warn("BB20 backdoor planner skipped:",e); }
       if(plan?.use&&plan.target){
@@ -222,7 +250,8 @@
         s.targetHistory.push({text:displayName(plan.target),reason:`Backdoor plan — ${plan.reason}`});
       }
     }
-    log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,backdoorTargetId:s.backdoorTargetId||null,targetHistory:s.targetHistory,nominationStrategy:s.nominationStrategy||null,title:"Nomination Ceremony",lines:[`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`,s.nominationStrategy?.type==='duo'?`The HOH deliberately nominates the duo together as a strategic pair.`:"",s.backdoorTargetId?`The HOH is considering a backdoor against ${displayName(hg(s,s.backdoorTargetId))}.`:""] .filter(Boolean)});
+    log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,backdoorTargetId:s.backdoorTargetId||null,targetHistory:s.targetHistory,nominationStrategy:s.nominationStrategy||null,title:"Nomination Ceremony",lines:[s._identityTheftActive?`The Identity Theft holder secretly controls the initial nominations: ${noms.map(displayName).join(" and ")}. The HOH retains control of any replacement nomination after the Veto.`:`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`,s.nominationStrategy?.type==='duo'?`The HOH deliberately nominates the duo together as a strategic pair.`:"",s.backdoorTargetId?`The HOH is considering a backdoor against ${displayName(hg(s,s.backdoorTargetId))}.`:""] .filter(Boolean)});
+    s._identityTheftActive=false;
   }
 
   function selectPOVPlayers(s,week,forcedId=null){
