@@ -341,7 +341,14 @@
     eventCounter.textContent=`${index+1} / ${history.length}`;
   }
   function statusBadge(h,view){
-    if(!h.active){if(h.placement===1)return `<span class="pill winner">WINNER</span>`;if(h.placement===2)return `<span class="pill runner">RUNNER-UP</span>`;if(h.juryMember)return `<span class="pill jury">JURY · ${ordinal(h.placement)}</span>`;return `<span class="pill out">${ordinal(h.placement)}</span>`;}
+    if(!h.active){
+      if(h.placement===1)return `<span class="pill winner">WINNER</span>`;
+      if(h.placement===2)return `<span class="pill runner">RUNNER-UP</span>`;
+      if(h.placement!=null && h.juryMember)return `<span class="pill jury">JURY · ${ordinal(h.placement)}</span>`;
+      if(h.placement!=null)return `<span class="pill out">${ordinal(h.placement)}</span>`;
+      if(h.juryMember)return `<span class="pill jury">JURY</span>`;
+      return `<span class="pill out">EVICTED</span>`;
+    }
     if(view?.currentHOH===h.id)return `<span class="pill hoh">HOH</span>`;
     if(view?.nominees?.includes(h.id))return `<span class="pill nom">NOMINATED</span>`;
     if(view?.povPlayers?.includes(h.id))return `<span class="pill pov">POV</span>`;
@@ -398,7 +405,7 @@
       row.forEach((h,ci)=>{
         const x=start+ci*(cardW+gap), y=rowY[ri]||180;
         const image=h.portraitUrl ? `<image href="${safeUrl(h.portraitUrl)}" x="${x}" y="${y}" width="${cardW}" height="190" preserveAspectRatio="xMidYMid slice"/>` : `<rect x="${x}" y="${y}" width="${cardW}" height="190" fill="#222a39"/><text x="${x+cardW/2}" y="${y+108}" text-anchor="middle" fill="#aeb7c7" font-size="42" font-family="Arial,sans-serif">?</text>`;
-        const place=h.placement===1?"WINNER":h.placement===2?"RUNNER-UP":`${ordinal(h.placement)} PLACE`;
+        const place=h.placement===1?"WINNER":h.placement===2?"RUNNER-UP":(h.placement!=null?`${ordinal(h.placement)} PLACE`:"EVICTED");
         body+=`<g>${image}<rect x="${x}" y="${y}" width="${cardW}" height="190" fill="none" stroke="#344056" stroke-width="3"/><text x="${x+cardW/2}" y="${y+222}" text-anchor="middle" fill="#f6f7fb" font-size="24" font-weight="700" font-family="Arial,sans-serif">${xmlEsc(name(h))}</text><text x="${x+cardW/2}" y="${y+253}" text-anchor="middle" fill="#d5d9e2" font-size="20" font-weight="700" font-family="Arial,sans-serif">${xmlEsc(place)}</text><text x="${x+cardW/2}" y="${y+280}" text-anchor="middle" fill="#aeb7c7" font-size="16" font-family="Arial,sans-serif">${xmlEsc(placementVoteText(h))}</text></g>`;
       });
     });
@@ -422,7 +429,7 @@
     for(let i=0;i<final.length;i+=5){ rows.push(final.slice(i,i+5)); }
     // The screenshot-inspired desktop composition is 5 / 6 / 5 for a 16-player cast.
     const placementRows=final.length===16 ? [final.slice(0,5),final.slice(5,11),final.slice(11,16)] : rows;
-    const cards=placementRows.map((row,ri)=>`<div class="final-placement-row row-${ri+1}">${row.map(h=>`<article class="final-placement-card"><div class="final-placement-portrait">${portrait(h,"final-placement-img")}</div><strong>${esc(name(h))}</strong><span>${h.placement===1?"Winner":h.placement===2?"Runner Up":`${ordinal(h.placement)} Place`}</span><small>${esc(placementVoteText(h))}</small></article>`).join("")}</div>`).join("");
+    const cards=placementRows.map((row,ri)=>`<div class="final-placement-row row-${ri+1}">${row.map(h=>`<article class="final-placement-card"><div class="final-placement-portrait">${portrait(h,"final-placement-img")}</div><strong>${esc(name(h))}</strong><span>${h.placement===1?"Winner":h.placement===2?"Runner Up":(h.placement!=null?`${ordinal(h.placement)} Place`:"Evicted")}</span><small>${esc(placementVoteText(h))}</small></article>`).join("")}</div>`).join("");
     tabContent.innerHTML=`<div class="tab-panel season-results-panel"><div class="results-heading-row"><div><h2>Season Results</h2><p class="results-image-note">Download the 5–6–5 final placement chart as an image, including portraits, placements, vote totals, and the jury/pre-jury divider.</p></div><button id="downloadPlacementChartBtn" class="primary">Download Placement Chart Image</button></div>${awardCards}<h3 class="results-subhead">Final Placements</h3><div class="final-placements-grid">${cards}</div></div>`;
     const downloadPlacementChartBtn=$("downloadPlacementChartBtn");
     if(downloadPlacementChartBtn) downloadPlacementChartBtn.onclick=downloadPlacementChartImage;
