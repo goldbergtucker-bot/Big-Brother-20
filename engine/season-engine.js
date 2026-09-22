@@ -416,7 +416,7 @@
     if(replacement?.id===hohId || !s.nominees.includes(replacement?.id)){
       replacement=null;
     }
-    s.bb20Twists.hacker={week,hackerId:hacker.id,replacedId:removed?.id||null,replacementId:replacement?.id||null,forcedPovPlayerId:forced?.id||null};
+    s.bb20Twists.hacker={...s.bb20Twists.hacker,week,hackerId:hacker.id,replacedId:removed?.id||null,replacementId:replacement?.id||null,forcedPovPlayerId:forced?.id||null,voteNullified:false,nullifiedVoterId:null};
     log(s,{week,phase:s.phase,type:"hacker",winnerId:hacker.id,participants:pool.map(p=>p.id),competition:comp,title:`H@cker Competition — ${comp.label}`,lines:[`The H@cker is anonymous to the house.`,removed&&replacement?`${displayName(hacker)} secretly removes ${displayName(removed)} from the block and replaces them with ${displayName(replacement)}.`:"The H@cker leaves the nominations unchanged.",forced?`${displayName(hacker)} secretly selects ${displayName(forced)} to play in the Veto.`:"No additional Veto player is selected.","The H@cker may also nullify one eviction vote."]});
     return hacker;
   }
@@ -426,17 +426,27 @@
     const hoh=hg(s,s.currentHOH),nomIds=new Set(noms.map(n=>n.id));
     let voters=(opts.voterPool||living(s)).filter(p=>p.id!==hoh.id&&!nomIds.has(p.id));
     const hacker=s.bb20Twists.hacker?.week===week?s.bb20Twists.hacker:null;
-    const counts={};noms.forEach(n=>counts[n.id]=0);s.evictionVotes=[];
-    voters.forEach(v=>{let out=noms.length===2?R().decideVote(s,v,noms[0],noms[1],hoh):R().decideVoteMulti(s,v,noms,hoh);if(!(out in counts))out=noms[0].id;counts[out]++;s.evictionVotes.push({voterId:v.id,targetId:out});});
-    // Real BB20-style Hacker vote nullification: one randomly selected legal voter
-    // other than the Hacker loses their vote if a Hacker is active.
-    if(hacker&&s.evictionVotes.length){
-      const eligible=s.evictionVotes.filter(v=>v.voterId!==hacker.hackerId);
-      if(eligible.length){
-        const blocked=pick(eligible);counts[blocked.targetId]--;s.evictionVotes=s.evictionVotes.filter(v=>v!==blocked);
-        log(s,{week,phase:s.phase,type:"hacker-vote-nullified",winnerId:hacker.hackerId,title:"H@cker — Vote Nullified",lines:[`${displayName(hg(s,hacker.hackerId))} secretly nullifies ${displayName(hg(s,blocked.voterId))}'s eviction vote.`]});
+
+    // BB20 Hacker power: during Weeks 6–7 exactly ONE otherwise-eligible
+    // voter has their eviction vote blocked. Choose the blocked voter before
+    // votes are generated so the blocked vote can never accidentally remain
+    // in the official tally. The Hacker themselves is also a legal voter, so
+    // they are allowed to be the blocked voter in the simulation.
+    let nullifiedVoterId=null;
+    if(hacker){
+      const eligibleToBlock=voters.filter(v=>v.active&&v.id!==hoh.id&&!nomIds.has(v.id));
+      const blockedVoter=pick(eligibleToBlock);
+      if(blockedVoter){
+        nullifiedVoterId=blockedVoter.id;
+        voters=voters.filter(v=>v.id!==nullifiedVoterId);
+        hacker.nullifiedVoterId=nullifiedVoterId;
+        hacker.voteNullified=true;
+        log(s,{week,phase:s.phase,type:"hacker-vote-nullified",winnerId:hacker.hackerId,blockedVoterId:nullifiedVoterId,title:"H@cker — Vote Nullified",lines:[`${displayName(hg(s,hacker.hackerId))} secretly nullifies ${displayName(hg(s,nullifiedVoterId))}'s eviction vote.`]});
       }
     }
+
+    const counts={};noms.forEach(n=>counts[n.id]=0);s.evictionVotes=[];
+    voters.forEach(v=>{let out=noms.length===2?R().decideVote(s,v,noms[0],noms[1],hoh):R().decideVoteMulti(s,v,noms,hoh);if(!(out in counts))out=noms[0].id;counts[out]++;s.evictionVotes.push({voterId:v.id,targetId:out});});
     const max=Math.max(...Object.values(counts)),tops=Object.keys(counts).filter(id=>counts[id]===max);
     let evictedId=tops.length===1?tops[0]:tops[Math.floor(Math.random()*tops.length)],tie=null;
     if(tops.length>1){tie=evictedId;}
