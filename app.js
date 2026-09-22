@@ -372,6 +372,33 @@
     }
     return h?.juryMember ? "Jury" : "";
   }
+  function downloadPlacementChartImage(){
+    if(!resultsUnlocked()){ toastMsg("Finish the season first to unlock the placement chart."); return; }
+    const final=state.houseguests.slice().sort((a,b)=>(a.placement||99)-(b.placement||99));
+    const rows=final.length===16 ? [final.slice(0,5),final.slice(5,11),final.slice(11,16)] : (()=>{ const out=[]; for(let i=0;i<final.length;i+=5) out.push(final.slice(i,i+5)); return out; })();
+    const W=1800,H=1260, cardW=260, cardH=290, gap=30;
+    const xmlEsc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&apos;"}[c]));
+    const safeUrl=u=>String(u||"").replace(/&/g,"&amp;").replace(/\"/g,"&quot;");
+    const rowY=[180,520,880];
+    let body="";
+    rows.forEach((row,ri)=>{
+      const total=row.length*cardW+(row.length-1)*gap;
+      const start=(W-total)/2;
+      row.forEach((h,ci)=>{
+        const x=start+ci*(cardW+gap), y=rowY[ri]||180;
+        const image=h.portraitUrl ? `<image href="${safeUrl(h.portraitUrl)}" x="${x}" y="${y}" width="${cardW}" height="190" preserveAspectRatio="xMidYMid slice"/>` : `<rect x="${x}" y="${y}" width="${cardW}" height="190" fill="#222a39"/><text x="${x+cardW/2}" y="${y+108}" text-anchor="middle" fill="#aeb7c7" font-size="42" font-family="Arial,sans-serif">?</text>`;
+        const place=h.placement===1?"WINNER":h.placement===2?"RUNNER-UP":`${ordinal(h.placement)} PLACE`;
+        body+=`<g>${image}<rect x="${x}" y="${y}" width="${cardW}" height="190" fill="none" stroke="#344056" stroke-width="3"/><text x="${x+cardW/2}" y="${y+222}" text-anchor="middle" fill="#f6f7fb" font-size="24" font-weight="700" font-family="Arial,sans-serif">${xmlEsc(name(h))}</text><text x="${x+cardW/2}" y="${y+253}" text-anchor="middle" fill="#d5d9e2" font-size="20" font-weight="700" font-family="Arial,sans-serif">${xmlEsc(place)}</text><text x="${x+cardW/2}" y="${y+280}" text-anchor="middle" fill="#aeb7c7" font-size="16" font-family="Arial,sans-serif">${xmlEsc(placementVoteText(h))}</text></g>`;
+      });
+    });
+    const divider=final.length===16 ? `<line x1="180" y1="850" x2="1620" y2="850" stroke="#59647b" stroke-width="3" stroke-dasharray="10 10"/><text x="900" y="838" text-anchor="middle" fill="#9ba5b8" font-size="18" font-weight="700" font-family="Arial,sans-serif">JURY / PRE-JURY DIVIDER</text>` : "";
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><rect width="100%" height="100%" fill="#080b12"/><text x="900" y="70" text-anchor="middle" fill="#f6f7fb" font-size="44" font-weight="800" font-family="Arial,sans-serif">${xmlEsc(state.season?.name||"Big Brother 20")} — Final Placements</text><text x="900" y="108" text-anchor="middle" fill="#9ba5b8" font-size="20" font-family="Arial,sans-serif">Season Results</text>${body}${divider}</svg>`;
+    const blob=new Blob([svg],{type:"image/svg+xml;charset=utf-8"});
+    const url=URL.createObjectURL(blob), a=document.createElement("a");
+    a.href=url; a.download=`${String(state.season?.name||"big-brother-20").replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"").toLowerCase()||"big-brother-20"}-final-placements.svg`;
+    a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000); toastMsg("Placement chart image downloaded.");
+  }
+
   function renderStats(){
     if(!resultsUnlocked()){
       tabContent.innerHTML=`<div class="tab-panel results-locked"><div class="results-lock-icon">🔒</div><h2>Season Results Locked</h2><p>The final placements and winner stay hidden until you actually reach the final winner reveal.</p></div>`;
@@ -385,7 +412,9 @@
     // The screenshot-inspired desktop composition is 5 / 6 / 5 for a 16-player cast.
     const placementRows=final.length===16 ? [final.slice(0,5),final.slice(5,11),final.slice(11,16)] : rows;
     const cards=placementRows.map((row,ri)=>`<div class="final-placement-row row-${ri+1}">${row.map(h=>`<article class="final-placement-card"><div class="final-placement-portrait">${portrait(h,"final-placement-img")}</div><strong>${esc(name(h))}</strong><span>${h.placement===1?"Winner":h.placement===2?"Runner Up":`${ordinal(h.placement)} Place`}</span><small>${esc(placementVoteText(h))}</small></article>`).join("")}</div>`).join("");
-    tabContent.innerHTML=`<div class="tab-panel season-results-panel"><h2>Season Results</h2>${awardCards}<h3 class="results-subhead">Final Placements</h3><div class="final-placements-grid">${cards}</div></div>`;
+    tabContent.innerHTML=`<div class="tab-panel season-results-panel"><div class="results-heading-row"><div><h2>Season Results</h2><p class="results-image-note">Download the 5–6–5 final placement chart as an image, including portraits, placements, vote totals, and the jury/pre-jury divider.</p></div><button id="downloadPlacementChartBtn" class="primary">Download Placement Chart Image</button></div>${awardCards}<h3 class="results-subhead">Final Placements</h3><div class="final-placements-grid">${cards}</div></div>`;
+    const downloadPlacementChartBtn=$("downloadPlacementChartBtn");
+    if(downloadPlacementChartBtn) downloadPlacementChartBtn.onclick=downloadPlacementChartImage;
   }
   function renderAlliances(){
     const a=state.alliances||[];
