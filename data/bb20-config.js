@@ -77,7 +77,7 @@ window.BB20_CONFIG = Object.freeze({
   twists:[
     {id:"premiere-immunity",name:"Premiere Immunity / House Division",week:1,summary:"The 16-player cast is divided into four move-in groups. Two preliminary competitions determine finalists for Surfing the BB Web. The winner grants immunity to two entire groups, leaving the other eight eligible for the first HOH and eviction."},
     {id:"bb-app-store",name:"BB App Store",week:1,summary:"The season's technology theme includes Power Apps and Crap Apps. The simulator tracks the major real BB20 powers: Bonus Life, The Cloud and Identity Theft, with the powers represented as optional strategic advantages."},
-    {id:"bonus-life",name:"Bonus Life",week:1,summary:"The Bonus Life can save a houseguest from one of the early evictions. If it remains unused through the first three evictions, it activates at the fourth eviction and gives the evicted player a chance to compete to return."},
+    {id:"bonus-life",name:"Bonus Life",week:1,summary:"The Bonus Life follows the real BB20 outcome: after remaining unused through the first three evictions, it activates at the fourth eviction, but the evicted Houseguest always fails the puzzle and remains evicted."},
     {id:"cloud",name:"The Cloud",week:2,summary:"A Power App that can protect its holder from being nominated at a Nomination Ceremony or Veto Meeting once during its active period."},
     {id:"identity-theft",name:"Identity Theft",week:3,summary:"A Power App tied to the BB App Store that gives its holder a strategic power over another houseguest's game. The simulator tracks it as a limited-use secret power."},
     {id:"hacker",name:"H@cker Competition",week:6,summary:"For Weeks 6 and 7, an anonymous Hacker can secretly replace one nominee, select a Veto participant and nullify one eviction vote."},
@@ -90,7 +90,7 @@ window.BB20_CONFIG = Object.freeze({
     "Opening immunity leaves half the house eligible for the first HOH.",
     "BB App Store powers are represented as season mechanics rather than requiring real viewer voting.",
     "H@cker Competition runs in Weeks 6 and 7.",
-    "The first four jurors are eligible for the Week 10 Battle Back.",
+    "The first four jurors are eligible for the Week 10 Battle Back, which always occurs because the Bonus Life is fixed to its real BB20 failed outcome.",
     "Week 11 is the real Double Eviction week.",
     "Week 12 includes the real Surprise Eviction before the Final Three.",
     "Final Three uses the real BB20 Jetpack Attack / Mount Evictus / Jury Oddcasts sequence."
