@@ -33,7 +33,7 @@
     d.winnerId=e.winnerId||d.winnerId||null;d.hohId=e.hohId||d.hohId||s.currentHOH||null;d.evictedId=e.evictedId||d.evictedId||null;
     if(e.type==="veto-ceremony"){d.vetoUsed=!!(e.vetoUsed??d.vetoUsed);d.finalNomineeIds=ids(e.finalNomineeIds||d.finalNomineeIds||s.nominees);}
     if(e.type==="eviction-voting"){d.votes=(s.evictionVotes||[]).map(v=>({...v}));d.voterIds=d.votes.map(v=>v.voterId);}
-    if(e.type==="eviction"){d.voteCounts={...(e.voteCounts||{})};d.tieBreakVoteId=e.tieBreakVoteId||null;d.evictedVoteCount=Number(e.evictedVoteCount||0);}
+    if(e.type==="eviction"){d.voteCounts={...(e.voteCounts||{})};d.tieBreakVoteId=e.tieBreakVoteId||null;d.evictedVoteCount=Number(e.evictedVoteCount||0);d.stayVoteCount=Number(e.stayVoteCount||0);}
     if(e.type==="jury-vote"){d.votes=(s._juryVotes||[]).map(v=>({...v}));d.voterIds=d.votes.map(v=>v.voterId);d.finalistIds=living(s).map(h=>h.id);}
     if(e.type==="winner"){d.runnerUpId=e.runnerUpId||null;d.thirdPlaceId=e.thirdPlaceId||null;d.afpId=e.afpId||null;d.afpVotes=e.afpVotes||{};}
     return d;
@@ -423,7 +423,7 @@
     const evictedVotes=Number(counts[evictedId]||0);
     const totalCountedVotes=Object.values(counts).reduce((sum,n)=>sum+Number(n||0),0);
     const stayVoteCount=Math.max(0,totalCountedVotes-evictedVotes);
-    log(s,{week,phase:s.phase,type:"eviction",evictedId:evicted.id,voteCounts:counts,evictedVoteCount:evictedVotes,stayVoteCount,tieBreakVoteId:tie,nomineeIds:noms.map(n=>n.id),title:"Eviction",lines:[`By a vote, ${displayName(evicted)} has been evicted.`,evicted.juryMember?`${displayName(evicted)} joins the jury.`:`${displayName(evicted)} finishes in ${ordinal(evicted.placement)} place.`]});
+    log(s,{week,phase:s.phase,type:"eviction",evictedId:evicted.id,voteCounts:counts,evictedVoteCount:evictedVotes,stayVoteCount,tieBreakVoteId:tie,nomineeIds:noms.map(n=>n.id),title:"Eviction",lines:[`By a vote of ${evictedVotes}-${stayVoteCount}, ${displayName(evicted)} has been evicted.`,tie?`${displayName(hoh)} casts the tiebreaking vote.`:"",evicted.juryMember?`${displayName(evicted)} joins the jury.`:`${displayName(evicted)} finishes in ${ordinal(evicted.placement)} place.`].filter(Boolean)});
     s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.evictionVotes=[];s.bb20Twists.hacker=null;
     return evicted;
   }
