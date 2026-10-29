@@ -33,7 +33,7 @@
     d.winnerId=e.winnerId||d.winnerId||null;d.hohId=e.hohId||d.hohId||s.currentHOH||null;d.evictedId=e.evictedId||d.evictedId||null;
     if(e.type==="veto-ceremony"){d.vetoUsed=!!(e.vetoUsed??d.vetoUsed);d.finalNomineeIds=ids(e.finalNomineeIds||d.finalNomineeIds||s.nominees);}
     if(e.type==="eviction-voting"){d.votes=(s.evictionVotes||[]).map(v=>({...v}));d.voterIds=d.votes.map(v=>v.voterId);}
-    if(e.type==="eviction"){d.voteCounts={...(e.voteCounts||{})};d.tieBreakVoteId=e.tieBreakVoteId||null;d.evictedVoteCount=Number(e.evictedVoteCount||0);d.stayVoteCount=Number(e.stayVoteCount||0);}
+    if(e.type==="eviction"){d.voteCounts={...(e.voteCounts||{})};d.tieBreakVoteId=e.tieBreakVoteId||null;d.tieBreakEvictedId=e.tieBreakEvictedId||null;d.evictedVoteCount=Number(e.evictedVoteCount||0);d.stayVoteCount=Number(e.stayVoteCount||0);}
     if(e.type==="jury-vote"){d.votes=(s._juryVotes||[]).map(v=>({...v}));d.voterIds=d.votes.map(v=>v.voterId);d.finalistIds=living(s).map(h=>h.id);}
     if(e.type==="winner"){d.runnerUpId=e.runnerUpId||null;d.thirdPlaceId=e.thirdPlaceId||null;d.afpId=e.afpId||null;d.afpVotes=e.afpVotes||{};}
     return d;
@@ -73,6 +73,21 @@
     const women=shuffle(players.filter(h=>genderKey(h)==='female'));
     const unknown=shuffle(players.filter(h=>genderKey(h)==='unspecified'));
     const groups=Array.from({length:groupCount},()=>[]);
+    // Exact BB20 cast path: build the required gender quotas directly instead
+    // of relying on a general-purpose round-robin distribution. This guarantees
+    // 2 men + 2 women in every move-in group and 4 men + 4 women on each
+    // preliminary immunity side when the cast is 8 men / 8 women.
+    if(groupSize%2===0 && unknown.length===0 && men.length===groupCount*(groupSize/2) && women.length===groupCount*(groupSize/2)){
+      const quota=groupSize/2;
+      for(let i=0;i<groupCount;i++){
+        groups[i].push(...men.slice(i*quota,(i+1)*quota));
+        groups[i].push(...women.slice(i*quota,(i+1)*quota));
+        // Shuffle within each already-balanced group so gender order is not
+        // visible or deterministic in the displayed cast list.
+        groups[i]=shuffle(groups[i]);
+      }
+      return groups;
+    }
     const addRoundRobin=(list,quota)=>{
       let cursor=0;
       for(const h of list){
@@ -390,12 +405,28 @@
 
   function selectPOVPlayers(s,week,forcedId=null){
     const hoh=hg(s,s.currentHOH),noms=s.nominees.map(id=>hg(s,id)).filter(Boolean);
-    let pool=living(s).filter(p=>p.id===hoh.id||noms.some(n=>n.id===p.id));
-    const extras=shuffle(living(s).filter(p=>!pool.some(x=>x.id===p.id))).slice(0,3);
-    pool=pool.concat(extras);
-    if(forcedId){const forced=hg(s,forcedId);const nomineeIds=new Set(s.nominees);if(forced&&forced.active&&forced.id!==hoh.id&&!nomineeIds.has(forced.id)&&!forced.safe){if(!pool.some(p=>p.id===forced.id)){const replaceIndex=pool.length-1;if(replaceIndex>=0&&pool[replaceIndex].id!==hoh.id&&!nomineeIds.has(pool[replaceIndex].id))pool[replaceIndex]=forced;}}}
+    // The HOH and nominees are automatic participants. The remaining three
+    // seats are drawn from eligible houseguests; a Hacker-selected player must
+    // occupy one of those seats, never be silently dropped or duplicated.
+    const fixed=[];
+    if(hoh)fixed.push(hoh);
+    noms.forEach(n=>{if(!fixed.some(p=>p.id===n.id))fixed.push(n);});
+    const fixedIds=new Set(fixed.map(p=>p.id));
+    let extrasPool=living(s).filter(p=>!fixedIds.has(p.id)&&p.active&&!p.safe);
+    const forced=forcedId?hg(s,forcedId):null;
+    const forcedEligible=!!(forced&&forced.active&&!forced.safe&&!fixedIds.has(forced.id)&&extrasPool.some(p=>p.id===forced.id));
+    let extras=[];
+    if(forcedEligible){
+      extras.push(forced);
+      extrasPool=extrasPool.filter(p=>p.id!==forced.id);
+    }
+    const seats=Math.max(0,Math.min(3,6-fixed.length)-extras.length);
+    extras=extras.concat(shuffle(extrasPool).slice(0,seats));
+    const pool=fixed.concat(extras);
     s.povPlayers=pool.map(p=>p.id);
-    log(s,{week,phase:s.phase,type:"pov-players",hohId:hoh.id,nomineeIds:s.nominees,povPlayers:s.povPlayers,participants:s.povPlayers,title:"Power of Veto Players",lines:[`${pool.map(displayName).join(", ")} compete for the Power of Veto.`]});
+    const lines=[`${pool.map(displayName).join(", ")} compete for the Power of Veto.`];
+    if(forcedEligible)lines.push(`${displayName(forced)} takes the H@cker-selected Veto seat.`);
+    log(s,{week,phase:s.phase,type:"pov-players",hohId:hoh?.id||null,nomineeIds:s.nominees,povPlayers:s.povPlayers,participants:s.povPlayers,title:"Power of Veto Players",lines});
     return pool;
   }
 
@@ -464,71 +495,48 @@
     const pool=living(s).filter(h=>h.active);
     if(!pool.length)return null;
     const comp=C().runCompetition(pool,{week,type:"hacker"}),hacker=comp.winner;
-    const noms=s.nominees.map(id=>hg(s,id)).filter(Boolean);
-    const others=pool.filter(p=>!noms.some(n=>n.id===p.id)&&p.id!==hacker.id);
+    const originalNomineeIds=s.nominees.slice();
+    const originalNomineeSet=new Set(originalNomineeIds);
+    const noms=originalNomineeIds.map(id=>hg(s,id)).filter(Boolean);
     let removed=null,replacement=null;
     if(noms.length){
+      // Choose a nominee the Hacker is least aligned with, then replace them
+      // with a legal, active player. If no replacement is legal, leave the
+      // original block untouched rather than creating mismatched flags/state.
       removed=noms.slice().sort((a,b)=>relationshipScore(s,hacker,a)-relationshipScore(s,hacker,b))[0];
-      removed.nominated=false;
-      const replPool=others.filter(p=>p.id!==hacker.id&&p.id!==s.currentHOH.id&&!s.nominees.includes(p.id)&&!p.safe&&p.active);
-      // The H@cker is also a player making a strategic nomination. Do not let
-      // the anonymous replacement randomly land on the H@cker's own ally when
-      // another eligible houseguest is available.
+      const replPool=pool.filter(p=>p.id!==hacker.id&&p.id!==s.currentHOH&&p.id!==s.currentHOH?.id&&!originalNomineeSet.has(p.id)&&!p.safe&&p.active);
       const nonAllyPool=replPool.filter(p=>{
-        if(!R()?.isAllyOf || !R().isAllyOf(s,hacker.id,p.id)) return true;
+        if(!R()?.isAllyOf || !R().isAllyOf(s,hacker.id,p.id))return true;
         const r=s.relationships?.[hacker.id]?.[p.id]||{};
-        return Number(r.rivalry||0)>=78 && Number(r.trust||50)<=30 && Number(r.loyalty||50)<=30;
+        return Number(r.rivalry||0)>=78&&Number(r.trust||50)<=30&&Number(r.loyalty||50)<=30;
       });
       replacement=pick(nonAllyPool.length?nonAllyPool:replPool);
-      if(replacement){replacement.nominated=true;s.nominees=s.nominees.filter(id=>id!==removed.id).concat(replacement.id);}
-    }
-    const nomineeIds=new Set(s.nominees);
-    const forcedPool=living(s).filter(p=>p.id!==s.currentHOH.id&&p.id!==hacker.id&&!nomineeIds.has(p.id)&&p.active&&!p.safe);
-    // If the HOH wins H@cker, their normal HOH seat already guarantees POV
-    // participation; the twist must never select them as an extra player.
-    const forced=hacker.id===s.currentHOH.id?null:pick(forcedPool);
-    // FINAL BB20 HACKER LEGALITY PASS. The reigning HOH is never eligible
-    // to be a Hacker nominee or a Hacker-selected Veto player. This pass is
-    // deliberately performed after every nomination mutation so a stale or
-    // corrupted nominee list cannot leak the HOH into the block.
-    const hohId=s.currentHOH.id;
-    if(replacement && (replacement.id===hohId || !s.nominees.includes(replacement.id))){
-      replacement=null;
-    }
-    if(forced && (forced.id===hohId || s.nominees.includes(forced.id))){
-      forced=null;
-    }
-
-    // If the nominee list somehow contains the HOH, immediately remove the
-    // HOH and replace that slot with a legal active houseguest. This is a hard
-    // invariant, not a strategic choice.
-    if(s.nominees.includes(hohId)){
-      const illegalHoH=hg(s,hohId);
-      if(illegalHoH) illegalHoH.nominated=false;
-      s.nominees=s.nominees.filter(id=>id!==hohId);
-      const fillPool=living(s).filter(p=>
-        p.id!==hohId &&
-        p.id!==hacker.id &&
-        !s.nominees.includes(p.id) &&
-        !p.safe &&
-        p.active
-      );
-      const fill=pick(fillPool);
-      if(fill){
-        fill.nominated=true;
-        s.nominees.push(fill.id);
-        replacement=fill;
+      if(replacement){
+        removed.nominated=false;replacement.nominated=true;
+        s.nominees=originalNomineeIds.filter(id=>id!==removed.id).concat(replacement.id);
+      } else {
+        removed=null;replacement=null;
+        s.nominees=originalNomineeIds.slice();
       }
     }
-
-    // Keep the Hacker replacement reference synchronized with the final legal
-    // nominee list, and never record the HOH as the replacement.
-    if(replacement?.id===hohId || !s.nominees.includes(replacement?.id)){
-      replacement=null;
-    }
-    s.bb20Twists.hacker={...s.bb20Twists.hacker,week,hackerId:hacker.id,replacedId:removed?.id||null,replacementId:replacement?.id||null,forcedPovPlayerId:forced?.id||null,voteNullified:false,nullifiedVoterId:null};
-    const nominationActuallyChanged=!!(removed&&replacement&&s.nominees.includes(replacement.id)&&!s.nominees.includes(removed.id));
-    log(s,{week,phase:s.phase,type:"hacker",winnerId:hacker.id,participants:pool.map(p=>p.id),competition:comp,title:`H@cker Competition — ${comp.label}`,lines:[`The H@cker is anonymous to the house.`,nominationActuallyChanged?`${displayName(hacker)} secretly removes ${displayName(removed)} from the block and replaces them with ${displayName(replacement)}.`:"The H@cker leaves the nominations unchanged.",forced?`${displayName(hacker)} secretly selects ${displayName(forced)} as the extra Veto player.`:hacker.id===s.currentHOH.id?`${displayName(hacker)} is already guaranteed a Veto seat as HOH, so no extra Veto player is selected.`:"No additional Veto player is selected.","The H@cker may also nullify one eviction vote."]});
+    // The H@cker's extra POV choice must be a non-HOH, non-nominee active
+    // player. If the HOH wins H@cker, the HOH already has their automatic seat.
+    const nomineeIds=new Set(s.nominees);
+    const forcedPool=living(s).filter(p=>p.id!==s.currentHOH&&p.id!==hacker.id&&!nomineeIds.has(p.id)&&p.active&&!p.safe);
+    const forced=hacker.id===s.currentHOH?null:pick(forcedPool);
+    // Keep all nominee flags synchronized with the authoritative nominee list.
+    const finalSet=new Set(s.nominees);
+    s.houseguests.forEach(p=>{p.nominated=finalSet.has(p.id);});
+    const actualChanged=originalNomineeIds.some(id=>!finalSet.has(id))||s.nominees.some(id=>!originalNomineeSet.has(id));
+    const removedActual=actualChanged?hg(s,originalNomineeIds.find(id=>!finalSet.has(id))):null;
+    const replacementActual=actualChanged?hg(s,s.nominees.find(id=>!originalNomineeSet.has(id))):null;
+    s.bb20Twists.hacker={...s.bb20Twists.hacker,week,hackerId:hacker.id,replacedId:removedActual?.id||null,replacementId:replacementActual?.id||null,forcedPovPlayerId:forced?.id||null,voteNullified:false,nullifiedVoterId:null};
+    log(s,{week,phase:s.phase,type:"hacker",winnerId:hacker.id,participants:pool.map(p=>p.id),competition:comp,title:`H@cker Competition — ${comp.label}`,lines:[
+      `The H@cker is anonymous to the house.`,
+      actualChanged?`The H@cker removes ${displayName(removedActual)} from the block and replaces them with ${displayName(replacementActual)}. The nominations have changed.`:`The H@cker leaves the nominations unchanged because no legal replacement was available.`,
+      forced?`${displayName(hacker)} secretly selects ${displayName(forced)} as the extra Veto player.`:hacker.id===s.currentHOH?`${displayName(hacker)} is already guaranteed a Veto seat as HOH, so no extra Veto player is selected.`:"No additional Veto player is selected.",
+      "The H@cker may also nullify one eviction vote."
+    ]});
     return hacker;
   }
 
@@ -582,7 +590,7 @@
     const evictedVotes=Number(counts[evictedId]||0);
     const totalCountedVotes=Object.values(counts).reduce((sum,n)=>sum+Number(n||0),0);
     const stayVoteCount=Math.max(0,totalCountedVotes-evictedVotes);
-    log(s,{week,phase:s.phase,type:"eviction",evictedId:evicted.id,voteCounts:counts,evictedVoteCount:evictedVotes,stayVoteCount,tieBreakVoteId:tie,nomineeIds:noms.map(n=>n.id),title:"Eviction",lines:[`By a vote of ${evictedVotes}-${stayVoteCount}, ${displayName(evicted)} has been evicted.`,tie?`${displayName(hoh)} casts the tiebreaking vote.`:"",evicted.juryMember?`${displayName(evicted)} joins the jury.`:`${displayName(evicted)} has been evicted and is currently out of the game.`].filter(Boolean)});
+    log(s,{week,phase:s.phase,type:"eviction",evictedId:evicted.id,voteCounts:counts,evictedVoteCount:evictedVotes,stayVoteCount,tieBreakVoteId:tie?hoh.id:null,tieBreakEvictedId:tie||null,nomineeIds:noms.map(n=>n.id),title:"Eviction",lines:[`By a vote of ${evictedVotes}-${stayVoteCount}, ${displayName(evicted)} has been evicted.`,tie?`${displayName(hoh)} casts the tiebreaking vote.`:"",evicted.juryMember?`${displayName(evicted)} joins the jury.`:`${displayName(evicted)} has been evicted and is currently out of the game.`].filter(Boolean)});
     s.nominees=[];s.povPlayers=[];s.vetoWinners=[];s.evictionVotes=[];s.bb20Twists.hacker=null;
     return evicted;
   }
