@@ -236,7 +236,8 @@
       const nomineeIds = d.nomineeIds || view?.nominees || [];
       const counts = {};
       rawVotes.forEach(v => { counts[v.targetId] = (counts[v.targetId] || 0) + 1; });
-      const tieBreaker= d.tieBreakVoteId ? byId(view,d.tieBreakVoteId) : null;
+      const tieBreakerHOH= d.tieBreakVoteId ? byId(view,d.tieBreakVoteId) : null;
+      const tieBreakerEvictee= d.tieBreakEvictedId ? byId(view,d.tieBreakEvictedId) : (d.tieBreakVoteId ? evicted : null);
       let voteLine;
       if (nomineeIds.length <= 2) {
         let a = Number(d.evictedVoteCount ?? NaN);
@@ -252,7 +253,7 @@
         const tallyText = nomineeIds.map(id => `${esc(displayName(byId(view,id)))}: ${Number(counts[id]||0)}`).join(" · ");
         voteLine = `By a house vote (${tallyText}), ${esc(displayName(evicted))}, you have been evicted.`;
       }
-      body += `<div class="eviction-result">${evicted ? card(evicted,"EVICTED") : ""}<div class="eviction-vote-count">${voteLine}${tieBreaker ? ` <div class="tie-break-note"><strong>HOH TIE-BREAKER:</strong> ${esc(displayName(tieBreaker))} was evicted by ${esc(displayName(byId(view,d.hohId)))}.</div>` : ""}</div></div>`;
+      body += `<div class="eviction-result">${evicted ? card(evicted,"EVICTED") : ""}<div class="eviction-vote-count">${voteLine}${tieBreakerHOH ? ` <div class="tie-break-note"><strong>HOH TIE-BREAKER:</strong> ${esc(displayName(tieBreakerHOH))} cast the deciding vote to evict ${esc(displayName(tieBreakerEvictee||evicted))}.</div>` : ""}</div></div>`;
       return body;
     }
     const players = findPlayers(entry,view);
@@ -442,13 +443,13 @@
     const stats=new Map(state.houseguests.map(h=>[h.id,{houseguest:h,total:0,counts:{}}]));
     const typeLabel=e=>{
       const t=String(e.type||'').toLowerCase();
-      if(t==='hoh'||t==='hoh-double')return 'HOH';
-      if(t==='veto'||t==='pov'||t==='pov-double')return 'POV';
+      if(t==='hoh'||t==='hoh-double'||t==='hoh-part2')return 'HOH';
+      if(t==='veto'||t==='pov'||t==='pov-double'||t==='veto-double')return 'POV';
       if(t==='hacker')return 'H@cker';
       if(t==='wildcard')return 'Wildcard';
       if(t.startsWith('immunity-'))return 'Premiere Immunity';
       if(t==='battleback'||t==='jury-battle-back')return 'Battle Back';
-      if(t.includes('final-hoh')||t.startsWith('final3-part'))return 'Final HOH';
+      if(t.includes('final-hoh')||t.startsWith('final3-part')||t.startsWith('final-hoh-'))return 'Final HOH';
       if(t==='bonus-life')return 'Bonus Life';
       const title=String(e.title||'');
       if(title.includes('Final HOH'))return 'Final HOH';
@@ -460,7 +461,7 @@
       if(!winnerId||!stats.has(winnerId))return;
       // Only count logged competitions, not power-use decisions or other
       // events that happen to carry a winnerId.
-      const isComp=!!(e.competition||d.competition)||['hoh','hoh-double','veto','pov','pov-double','hacker','wildcard','immunity-1','immunity-2','immunity-final','battleback','final-hoh-part1','final-hoh-part2','final-hoh-part3','bonus-life'].includes(e.type);
+      const isComp=!!(e.competition||d.competition)||['hoh','hoh-double','hoh-part2','veto','veto-double','pov','pov-double','hacker','wildcard','immunity-1','immunity-2','immunity-final','battleback','jury-battle-back','final-hoh-part1','final-hoh-part2','final-hoh-part3','final3-part1','final3-part2','final3-part3','bonus-life'].includes(e.type);
       if(!isComp)return;
       const key=`${e.id||''}:${e.type}:${winnerId}:${e.week}`;
       if(seen.has(key))return;seen.add(key);
