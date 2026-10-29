@@ -48,18 +48,77 @@
     s.houseguests.forEach(h=>{h.gender=h.gender||"";h.allianceIds=h.allianceIds||[];h.ratings=h.ratings||{general:50,physical:50,mental:50,social:50,strategic:50};});
   }
   function relationshipScore(s,a,b){const r=s.relationships?.[a.id]?.[b.id]||{friendship:50,trust:50,loyalty:50,respect:50,attraction:0,rivalry:0};return (r.friendship||0)*.30+(r.trust||0)*.25+(r.loyalty||0)*.15+(r.respect||0)*.20+(r.attraction||0)*.10-(r.rivalry||0)*.35;}
+  function isTrustedAlly(s,aId,bId){
+    if(!aId||!bId||aId===bId)return false;
+    const r=s.relationships?.[aId]?.[bId]||{};
+    const betrayed=Number(r.rivalry||0)>=78&&Number(r.trust||50)<=30&&Number(r.loyalty||50)<=30;
+    if(R()?.isAllyOf?.(s,aId,bId))return !betrayed;
+    return !betrayed&&Number(r.friendship||50)>=72&&Number(r.trust||50)>=65&&Number(r.loyalty||50)>=65;
+  }
   function randomizeRelationships(s){if(s.season.relationshipsRandomized||s.season.relationshipsCustomized)return;s.houseguests.forEach(a=>s.houseguests.forEach(b=>{if(a.id===b.id)return;const r=s.relationships[a.id][b.id];const n=()=>Math.round(Math.random()*40-20);r.friendship=clamp(r.friendship+n(),15,85);r.trust=clamp(r.trust+n(),15,85);r.loyalty=clamp(r.loyalty+n(),15,85);r.respect=clamp(r.respect+n(),15,85);r.rivalry=Math.round(Math.random()*25);r.attraction=Math.round(Math.random()*30);}));s.season.relationshipsRandomized=true;}
 
+  function genderKey(h){
+    const g=String(h?.gender||'').trim().toLowerCase();
+    if(g==='male'||g==='man'||g==='m')return 'male';
+    if(g==='female'||g==='woman'||g==='f')return 'female';
+    return 'unspecified';
+  }
+
+  // With the standard 8-men/8-women BB20 cast, each move-in group is 2 men +
+  // 2 women and each preliminary immunity side is 4 men + 4 women. If a custom
+  // cast has unspecified or uneven gender entries, distribute those leftovers
+  // as evenly as possible instead of dropping or duplicating anyone.
+  function balancedGenderGroups(players, groupCount, groupSize){
+    const men=shuffle(players.filter(h=>genderKey(h)==='male'));
+    const women=shuffle(players.filter(h=>genderKey(h)==='female'));
+    const unknown=shuffle(players.filter(h=>genderKey(h)==='unspecified'));
+    const groups=Array.from({length:groupCount},()=>[]);
+    const addRoundRobin=(list,quota)=>{
+      let cursor=0;
+      for(const h of list){
+        let placed=false;
+        for(let step=0;step<groupCount;step++){
+          const idx=(cursor+step)%groupCount;
+          const g=groups[idx];
+          const count=g.filter(x=>genderKey(x)===genderKey(h)).length;
+          if(g.length<groupSize && (quota==null || count<quota[idx])){
+            g.push(h);cursor=(idx+1)%groupCount;placed=true;break;
+          }
+        }
+        if(!placed){
+          for(let step=0;step<groupCount;step++){
+            const idx=(cursor+step)%groupCount;
+            if(groups[idx].length<groupSize){groups[idx].push(h);cursor=(idx+1)%groupCount;break;}
+          }
+        }
+      }
+    };
+    const maleQuota=Array(groupCount).fill(Math.floor(groupSize/2));
+    const femaleQuota=Array(groupCount).fill(Math.floor(groupSize/2));
+    addRoundRobin(men,maleQuota);
+    addRoundRobin(women,femaleQuota);
+    addRoundRobin(unknown,null);
+    const leftovers=groups.flat();
+    const placed=new Set(leftovers.map(h=>h.id));
+    const remaining=shuffle(players.filter(h=>!placed.has(h.id)));
+    for(const h of remaining){const target=groups.filter(g=>g.length<groupSize).sort((a,b)=>a.length-b.length)[0];if(target)target.push(h);}
+    return groups;
+  }
+
   function setMoveInGroups(s){
-    const pool=shuffle(living(s));s.teams=[];
-    for(let i=0;i<4;i++)s.teams.push({id:`movein-${i+1}`,name:`Move-In Group ${i+1}`,memberIds:pool.slice(i*4,i*4+4).map(h=>h.id)});
-    pool.forEach((h,i)=>h.teamId=`movein-${Math.floor(i/4)+1}`);
+    const pool=living(s);s.teams=[];
+    const groups=balancedGenderGroups(pool,4,4);
+    groups.forEach((group,i)=>{
+      const team={id:`movein-${i+1}`,name:`Move-In Group ${i+1}`,memberIds:group.map(h=>h.id)};
+      s.teams.push(team);group.forEach(h=>h.teamId=team.id);
+    });
   }
 
   function openingImmunity(s){
     setMoveInGroups(s);
     const all=living(s);
-    const g1=shuffle(all.slice()).slice(0,8),g2=shuffle(all.filter(h=>!g1.includes(h))).slice(0,8);
+    const balancedSides=balancedGenderGroups(all,2,8);
+    const g1=balancedSides[0],g2=balancedSides[1];
     const p1=C().runCompetition(g1,{week:1,type:"immunity-1"});
     const p2=C().runCompetition(g2,{week:1,type:"immunity-2"});
     log(s,{week:1,phase:"premiere",type:"immunity-1",winnerId:p1.winner.id,participants:g1.map(x=>x.id),competition:p1,title:`Premiere Immunity — ${p1.label}`,lines:[`${displayName(p1.winner)} wins the first preliminary immunity competition and advances to the final round.`]});
@@ -246,6 +305,11 @@
     }
 
     noms=applyCloud(s,hoh,noms,week);
+    // Record the HOH's genuine target before Identity Theft can replace the
+    // block. The HOH should adapt their strategy to the stolen nominations,
+    // not suddenly pretend that an ally put up by the power holder was their
+    // intended target all along.
+    const hohPreferredBeforeHijack=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0]||null;
     noms=applyIdentityTheft(s,hoh,noms,week);
     noms.forEach(n=>n.nominated=true);s.nominees=noms.map(n=>n.id);
     // The initial target is the least-protected nominee from the HOH's perspective.
@@ -281,14 +345,36 @@
     // Final authoritative synchronization: the ceremony, state, and every
     // downstream POV/eviction routine all use this exact nominee list.
     s.nominees=noms.map(n=>n.id);
-    const target=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0];
+    let target;
+    if(s._identityTheftActive){
+      const preferred=hohPreferredBeforeHijack;
+      const trustedAlly=h=>isTrustedAlly(s,hoh.id,h.id);
+      const alternatives=living(s).filter(h=>h.id!==hoh.id&&!h.safe&&!trustedAlly(h));
+      // Keep the original target when it remains a sensible target; otherwise
+      // pick a different non-ally based on strategic/competition threat and
+      // relationship risk. Never make a trusted ally the default target just
+      // because Identity Theft put them on the block.
+      target=preferred&&preferred.active&&!trustedAlly(preferred)?preferred:null;
+      if(!target&&alternatives.length){
+        alternatives.sort((a,b)=>{
+          const score=h=>{
+            const r=s.relationships?.[hoh.id]?.[h.id]||{};
+            return Number(h.ratings?.strategic||50)*.36+Number(h.ratings?.physical||50)*.18+Number(h.ratings?.mental||50)*.12+Number(r.rivalry||0)*.30+(100-Number(r.trust||50))*.10+(100-Number(r.loyalty||50))*.08+Math.random()*4;
+          };
+          return score(b)-score(a);
+        });
+        target=alternatives[0];
+      }
+    } else {
+      target=noms.slice().sort((a,b)=>relationshipScore(s,hoh,a)-relationshipScore(s,hoh,b))[0];
+    }
     s.intendedTarget=target?displayName(target):null;
     s.intendedTargetId=target?.id||null;
-    s.targetHistory=[{text:s.intendedTarget,reason:"Initial target"}];
+    s.targetHistory=[{text:s.intendedTarget,reason:s._identityTheftActive?"HOH's revised target after Identity Theft":"Initial target"}];
     s.nominationStrategy=null;
     if(s._identityTheftActive){
       // Identity Theft owns the initial nominations and therefore cancels any
-      // HOH backdoor plan for this ceremony.
+      // HOH backdoor plan for this ceremony, but not the HOH's separate target.
       s.backdoorTargetId=null;
       s._plannedBackdoor=null;
       s.nominationStrategy={type:"identity-theft",holderId:s.bb20Twists.apps.identityTheftHolderId};
@@ -297,7 +383,7 @@
       s.nominationStrategy={type:"backdoor",targetId:s.backdoorTargetId,reason:s._plannedBackdoor.reason};
       s.targetHistory.push({text:displayName(s._plannedBackdoor.target),reason:`Backdoor plan — ${s._plannedBackdoor.reason}`});
     }
-    log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,backdoorTargetId:s.backdoorTargetId||null,targetHistory:s.targetHistory,nominationStrategy:s.nominationStrategy||null,title:"Nomination Ceremony",lines:[s._identityTheftActive?`The Identity Theft holder secretly controls the initial nominations: ${noms.map(displayName).join(" and ")}. The HOH retains control of any replacement nomination after the Veto.`:`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`,s.nominationStrategy?.type==='duo'?`The HOH deliberately nominates the duo together as a strategic pair.`:"",s.backdoorTargetId?`The HOH is considering a backdoor against ${displayName(hg(s,s.backdoorTargetId))}.`:""] .filter(Boolean)});
+    log(s,{week,phase:s.phase,type:"nominations",hohId:hoh.id,nomineeIds:s.nominees,intendedTarget:s.intendedTarget,backdoorTargetId:s.backdoorTargetId||null,targetHistory:s.targetHistory,nominationStrategy:s.nominationStrategy||null,title:"Nomination Ceremony",lines:[s._identityTheftActive?`The Identity Theft holder secretly replaces the HOH's initial nominations with ${noms.map(displayName).join(" and ")}. The HOH does not control the initial block but retains control of any replacement nomination after the Veto.`:`${displayName(hoh)} nominates ${noms.map(displayName).join(" and ")} for eviction.`,s._identityTheftActive&&s.intendedTarget?`${displayName(hoh)} adjusts their target to ${s.intendedTarget} rather than treating a trusted ally placed on the block by Identity Theft as their own target.`:"",s.nominationStrategy?.type==='duo'?`The HOH deliberately nominates the duo together as a strategic pair.`:"",s.backdoorTargetId?`The HOH is considering a backdoor against ${displayName(hg(s,s.backdoorTargetId))}.`:""] .filter(Boolean)});
     s._identityTheftActive=false;
     s._plannedBackdoor=null;
   }
@@ -307,16 +393,34 @@
     let pool=living(s).filter(p=>p.id===hoh.id||noms.some(n=>n.id===p.id));
     const extras=shuffle(living(s).filter(p=>!pool.some(x=>x.id===p.id))).slice(0,3);
     pool=pool.concat(extras);
-    if(forcedId){const forced=hg(s,forcedId);const nomineeIds=new Set(s.nominees);if(forced&&forced.active&&forced.id!==hoh.id&&!nomineeIds.has(forced.id)){if(!pool.some(p=>p.id===forced.id)){pool[pool.length-1]=forced;}}}
+    if(forcedId){const forced=hg(s,forcedId);const nomineeIds=new Set(s.nominees);if(forced&&forced.active&&forced.id!==hoh.id&&!nomineeIds.has(forced.id)&&!forced.safe){if(!pool.some(p=>p.id===forced.id)){const replaceIndex=pool.length-1;if(replaceIndex>=0&&pool[replaceIndex].id!==hoh.id&&!nomineeIds.has(pool[replaceIndex].id))pool[replaceIndex]=forced;}}}
     s.povPlayers=pool.map(p=>p.id);
     log(s,{week,phase:s.phase,type:"pov-players",hohId:hoh.id,nomineeIds:s.nominees,povPlayers:s.povPlayers,participants:s.povPlayers,title:"Power of Veto Players",lines:[`${pool.map(displayName).join(", ")} compete for the Power of Veto.`]});
     return pool;
   }
 
   function runPOV(s,week,type="pov",forcedId=null){
-    const pool=selectPOVPlayers(s,week,forcedId),comp=C().runCompetition(pool,{week,type});
+    const pool=selectPOVPlayers(s,week,forcedId),hoh=hg(s,s.currentHOH);
+    const hacker=s.bb20Twists.hacker?.week===week?s.bb20Twists.hacker:null;
+    const hackerReplacement=hg(s,hacker?.replacementId);
+    const hohProtectingAlly=!!(hoh&&hackerReplacement&&hackerReplacement.active&&isTrustedAlly(s,hoh.id,hackerReplacement.id));
+    let originalRatings=null;
+    // If H@cker has put the HOH's ally on the block, the HOH has a strategic
+    // reason to push harder in the Veto. Give a modest, temporary motivation
+    // bonus to their competition performance; it improves their odds but never
+    // guarantees a win, and their stored ratings are restored immediately.
+    if(hohProtectingAlly&&pool.some(p=>p.id===hoh.id)){
+      originalRatings={...hoh.ratings};
+      ['general','physical','mental','social','strategic'].forEach(k=>hoh.ratings[k]=Math.min(100,Number(hoh.ratings[k]??50)+14));
+    }
+    const comp=C().runCompetition(pool,{week,type});
+    if(originalRatings)hoh.ratings=originalRatings;
     s.vetoWinners=[comp.winner.id];
-    log(s,{week,phase:s.phase,type:"veto",winnerId:comp.winner.id,participants:pool.map(p=>p.id),competition:comp,title:`Power of Veto — ${comp.label}`,lines:[`${displayName(comp.winner)} wins the Power of Veto.`]});
+    const lines=[`${displayName(comp.winner)} wins the Power of Veto.`];
+    if(hohProtectingAlly){
+      lines.push(comp.winner.id===hoh.id?`${displayName(hoh)} wins the Veto while trying to protect ally ${displayName(hackerReplacement)} from the H@cker's nomination.`:`${displayName(hoh)} pushes to win the Veto to protect ally ${displayName(hackerReplacement)}, but ${displayName(comp.winner)} wins instead.`);
+    }
+    log(s,{week,phase:s.phase,type:"veto",winnerId:comp.winner.id,participants:pool.map(p=>p.id),competition:comp,title:`Power of Veto — ${comp.label}`,lines});
     return comp.winner;
   }
 
@@ -324,6 +428,11 @@
     const noms=s.nominees.map(id=>hg(s,id)).filter(Boolean),hoh=hg(s,s.currentHOH);
     if(!noms.length)return;
     let decision=forceNoUse?{use:false}:R().decideVetoUse(s,winner,hoh,noms);
+    const hacker=s.bb20Twists.hacker?.week===week?s.bb20Twists.hacker:null;
+    const hackerReplacedAlly=hg(s,hacker?.replacementId);
+    if(!forceNoUse&&winner.id===hoh?.id&&hackerReplacedAlly&&noms.some(n=>n.id===hackerReplacedAlly.id)&&isTrustedAlly(s,hoh.id,hackerReplacedAlly.id)){
+      decision={use:true,saveId:hackerReplacedAlly.id,reason:"HOH protects ally targeted by H@cker"};
+    }
     if(winner.id===noms[0]?.id||winner.id===noms[1]?.id) decision={use:true,saveId:winner.id};
     if(!decision.use){log(s,{week,phase:s.phase,type:"veto-ceremony",hohId:hoh.id,winnerId:winner.id,nomineeIds:s.nominees,finalNomineeIds:s.nominees,vetoUsed:false,title:"Veto Ceremony — Not Used",lines:[`${displayName(winner)} does not use the Power of Veto.`]});return;}
     const saved=noms.find(n=>n.id===decision.saveId)||noms[0];saved.nominated=false;
@@ -352,7 +461,7 @@
 
   function runHacker(s,week){
     if(!CFG().hackerWeeks.includes(week))return null;
-    const pool=living(s).filter(h=>h.id!==s.currentHOH.id&&h.active);
+    const pool=living(s).filter(h=>h.active);
     if(!pool.length)return null;
     const comp=C().runCompetition(pool,{week,type:"hacker"}),hacker=comp.winner;
     const noms=s.nominees.map(id=>hg(s,id)).filter(Boolean);
@@ -374,15 +483,16 @@
       if(replacement){replacement.nominated=true;s.nominees=s.nominees.filter(id=>id!==removed.id).concat(replacement.id);}
     }
     const nomineeIds=new Set(s.nominees);
-    const forcedPool=living(s).filter(p=>p.id!==s.currentHOH.id&&!nomineeIds.has(p.id)&&p.active&&!p.safe);
-    const forced=pick(forcedPool);
-    if(forced && !s.povPlayers.includes(forced.id)){s.povPlayers.push(forced.id);}
+    const forcedPool=living(s).filter(p=>p.id!==s.currentHOH.id&&p.id!==hacker.id&&!nomineeIds.has(p.id)&&p.active&&!p.safe);
+    // If the HOH wins H@cker, their normal HOH seat already guarantees POV
+    // participation; the twist must never select them as an extra player.
+    const forced=hacker.id===s.currentHOH.id?null:pick(forcedPool);
     // FINAL BB20 HACKER LEGALITY PASS. The reigning HOH is never eligible
     // to be a Hacker nominee or a Hacker-selected Veto player. This pass is
     // deliberately performed after every nomination mutation so a stale or
     // corrupted nominee list cannot leak the HOH into the block.
     const hohId=s.currentHOH.id;
-    if(replacement && (replacement.id===hohId || s.nominees.includes(replacement.id))){
+    if(replacement && (replacement.id===hohId || !s.nominees.includes(replacement.id))){
       replacement=null;
     }
     if(forced && (forced.id===hohId || s.nominees.includes(forced.id))){
@@ -417,7 +527,8 @@
       replacement=null;
     }
     s.bb20Twists.hacker={...s.bb20Twists.hacker,week,hackerId:hacker.id,replacedId:removed?.id||null,replacementId:replacement?.id||null,forcedPovPlayerId:forced?.id||null,voteNullified:false,nullifiedVoterId:null};
-    log(s,{week,phase:s.phase,type:"hacker",winnerId:hacker.id,participants:pool.map(p=>p.id),competition:comp,title:`H@cker Competition — ${comp.label}`,lines:[`The H@cker is anonymous to the house.`,removed&&replacement?`${displayName(hacker)} secretly removes ${displayName(removed)} from the block and replaces them with ${displayName(replacement)}.`:"The H@cker leaves the nominations unchanged.",forced?`${displayName(hacker)} secretly selects ${displayName(forced)} to play in the Veto.`:"No additional Veto player is selected.","The H@cker may also nullify one eviction vote."]});
+    const nominationActuallyChanged=!!(removed&&replacement&&s.nominees.includes(replacement.id)&&!s.nominees.includes(removed.id));
+    log(s,{week,phase:s.phase,type:"hacker",winnerId:hacker.id,participants:pool.map(p=>p.id),competition:comp,title:`H@cker Competition — ${comp.label}`,lines:[`The H@cker is anonymous to the house.`,nominationActuallyChanged?`${displayName(hacker)} secretly removes ${displayName(removed)} from the block and replaces them with ${displayName(replacement)}.`:"The H@cker leaves the nominations unchanged.",forced?`${displayName(hacker)} secretly selects ${displayName(forced)} as the extra Veto player.`:hacker.id===s.currentHOH.id?`${displayName(hacker)} is already guaranteed a Veto seat as HOH, so no extra Veto player is selected.`:"No additional Veto player is selected.","The H@cker may also nullify one eviction vote."]});
     return hacker;
   }
 
@@ -448,8 +559,15 @@
     const counts={};noms.forEach(n=>counts[n.id]=0);s.evictionVotes=[];
     voters.forEach(v=>{let out=noms.length===2?R().decideVote(s,v,noms[0],noms[1],hoh):R().decideVoteMulti(s,v,noms,hoh);if(!(out in counts))out=noms[0].id;counts[out]++;s.evictionVotes.push({voterId:v.id,targetId:out});});
     const max=Math.max(...Object.values(counts)),tops=Object.keys(counts).filter(id=>counts[id]===max);
-    let evictedId=tops.length===1?tops[0]:tops[Math.floor(Math.random()*tops.length)],tie=null;
-    if(tops.length>1){tie=evictedId;}
+    let evictedId=tops.length===1?tops[0]:null,tie=null;
+    if(tops.length>1){
+      tie=R()?.decideTieBreak?R().decideTieBreak(s,hoh,hg(s,tops[0]),hg(s,tops[1])):tops[Math.floor(Math.random()*tops.length)];
+      evictedId=tie;
+      // The HOH's tie-break vote is a real deciding vote, so include it in the
+      // official displayed count (e.g. 3–3 becomes 4–3), without treating the
+      // HOH as an ordinary voter in the voting log.
+      counts[evictedId]=(counts[evictedId]||0)+1;
+    }
     const evicted=hg(s,evictedId);
     log(s,{week,phase:s.phase,type:"eviction-voting",nomineeIds:noms.map(n=>n.id),voterIds:voters.map(v=>v.id),votes:s.evictionVotes,title:"Eviction Vote",lines:s.evictionVotes.map(v=>`${displayName(hg(s,v.voterId))} votes to evict ${displayName(hg(s,v.targetId))}.`)});
     evicted.active=false;evicted.evicted=true;s.season.evictionCount++;
