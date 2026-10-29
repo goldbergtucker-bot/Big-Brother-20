@@ -30,6 +30,7 @@
   const relationshipsGrid = $("relationshipsGrid"), allianceSetup = $("allianceSetup");
   const liveFeedsToggle=$("liveFeedsToggle"), liveFeedPromptPanel=$("liveFeedPromptPanel");
   const demoNames = [["Angela","Rummans"],["Bayleigh","Dayton"],["Brett","Robinson"],["Faysal","Shafaat"],["Haleigh","Broucher"],["JC","Mounduix"],["Kaitlyn","Herman"],["Kaycee","Clark"],["Rachel","Swindler"],["Rockstar","Lantry"],["Sam","Bledsoe"],["Scottie","Salton"],["Steve","Arienta"],["Swaggy","C"],["Tyler","Crispen"],["Winston","Hines"]];
+  const demoGenders = ["female","female","male","male","female","male","female","female","female","female","female","male","male","male","male","male"];
   const REL_KEYS = ["friendship","trust","loyalty","rivalry","respect","attraction"];
   const REL_LABELS = {friendship:"Friendship",trust:"Trust",loyalty:"Loyalty",rivalry:"Rivalry",respect:"Respect",attraction:"Attraction"};
   const REL_TYPES = ["Unspecified","Showmance","Bromance","Best Friends","Close Friends","Allies","Rivalry","Mentor / Mentee","Family","Frenemies","Secret Pair","Other"];
@@ -434,6 +435,47 @@
     const downloadPlacementChartBtn=$("downloadPlacementChartBtn");
     if(downloadPlacementChartBtn) downloadPlacementChartBtn.onclick=downloadPlacementChartImage;
   }
+  function renderCompetitionWins(){
+    // Respect the event reveal pointer so this tab does not spoil competitions
+    // the viewer has not revealed yet. On a completed season it shows every win.
+    const visibleHistory=history.slice(0,Math.max(0,pointer+1));
+    const stats=new Map(state.houseguests.map(h=>[h.id,{houseguest:h,total:0,counts:{}}]));
+    const typeLabel=e=>{
+      const t=String(e.type||'').toLowerCase();
+      if(t==='hoh'||t==='hoh-double')return 'HOH';
+      if(t==='veto'||t==='pov'||t==='pov-double')return 'POV';
+      if(t==='hacker')return 'H@cker';
+      if(t==='wildcard')return 'Wildcard';
+      if(t.startsWith('immunity-'))return 'Premiere Immunity';
+      if(t==='battleback'||t==='jury-battle-back')return 'Battle Back';
+      if(t.includes('final-hoh')||t.startsWith('final3-part'))return 'Final HOH';
+      if(t==='bonus-life')return 'Bonus Life';
+      const title=String(e.title||'');
+      if(title.includes('Final HOH'))return 'Final HOH';
+      return title.split(' — ')[0]||'Competition';
+    };
+    const seen=new Set();
+    visibleHistory.forEach(e=>{
+      const d=e.data||{},winnerId=e.winnerId||d.winnerId;
+      if(!winnerId||!stats.has(winnerId))return;
+      // Only count logged competitions, not power-use decisions or other
+      // events that happen to carry a winnerId.
+      const isComp=!!(e.competition||d.competition)||['hoh','hoh-double','veto','pov','pov-double','hacker','wildcard','immunity-1','immunity-2','immunity-final','battleback','final-hoh-part1','final-hoh-part2','final-hoh-part3','bonus-life'].includes(e.type);
+      if(!isComp)return;
+      const key=`${e.id||''}:${e.type}:${winnerId}:${e.week}`;
+      if(seen.has(key))return;seen.add(key);
+      const s=stats.get(winnerId),label=typeLabel(e);
+      s.total++;s.counts[label]=(s.counts[label]||0)+1;
+    });
+    const sorted=[...stats.values()].sort((a,b)=>b.total-a.total||Number(a.houseguest.slot||0)-Number(b.houseguest.slot||0));
+    const cards=sorted.map(({houseguest:h,total,counts})=>{
+      const eliminated=!!(h.evicted||state.evicted?.includes(h.id));
+      const details=Object.entries(counts).sort((a,b)=>a[0].localeCompare(b[0])).map(([label,count])=>`<span class="competition-win-chip"><strong>${count}</strong> ${esc(label)}</span>`).join('');
+      return `<article class="competition-win-card ${eliminated?'evicted':''}"><div class="competition-win-portrait-wrap">${portrait(h,'competition-win-portrait')}</div><div class="competition-win-info"><strong>${esc(name(h))}</strong><span class="competition-win-total">${total} competition ${total===1?'win':'wins'}</span><div class="competition-win-breakdown">${details||'<span class="muted-note">No competition wins yet</span>'}</div>${eliminated?'<small class="competition-win-status">EVICTED</small>':''}</div></article>`;
+    }).join('');
+    tabContent.innerHTML=`<div class="tab-panel competition-wins-panel"><h2>Competition Wins</h2><p class="muted-note">HOH, Power of Veto, H@cker, immunity, battle-back, and other recorded competition wins. Evicted Houseguests remain listed with grayed-out portraits. Counts include only events revealed so far.</p><div class="competition-wins-grid">${cards}</div></div>`;
+  }
+
   function renderAlliances(){
     const a=state.alliances||[];
     const relationshipNote=state.season.relationshipsCustomized?"Custom starting relationships are active.":"Starting relationships are randomized when you simulate.";
@@ -524,7 +566,7 @@
     const layout=document.querySelector(".sim-layout");
     const resultsMode=activeTab!=="event";
     layout?.classList.toggle("results-mode",resultsMode);
-    if(activeTab==="stats")renderStats(); else if(activeTab==="weekly-summary")renderWeeklySummary(); else if(activeTab==="alliances")renderAlliances(); else {tabContent.innerHTML="";tabContent.classList.add("hidden");return;}
+    if(activeTab==="stats")renderStats(); else if(activeTab==="weekly-summary")renderWeeklySummary(); else if(activeTab==="alliances")renderAlliances(); else if(activeTab==="competition-wins")renderCompetitionWins(); else {tabContent.innerHTML="";tabContent.classList.add("hidden");return;}
     tabContent.classList.remove("hidden");
   }
   function updateSeasonUI(){
@@ -632,7 +674,7 @@
   }
   function refreshSetup(){renderCast();renderRelationships();renderAlliancesSetup();renderLiveFeedSetup();validate();$("seasonName").value=state.season.name;$("themeUrl").value=state.season.themeUrl||"";$("logoUrl").value=state.season.logoUrl||"";}
   function validate(){const ok=state.houseguests.every(h=>h.firstName.trim()&&h.lastName.trim());validity.textContent=ok?"Cast ready":"Names required";validity.classList.toggle("invalid",!ok);}
-  function loadDemo(){state=GameState.createInitialState(BB20_CONFIG);state.season.name="Big Brother 20 — Custom Demo";state.houseguests.forEach((h,i)=>{[h.firstName,h.lastName]=demoNames[i];h.displayName=h.firstName;h.ratings.general=45+(i*7)%45;h.ratings.physical=40+(i*11)%55;h.ratings.mental=42+(i*13)%53;h.ratings.social=45+(i*9)%50;h.ratings.strategic=40+(i*17)%58;});refreshSetup();toastMsg("Demo cast loaded.");}
+  function loadDemo(){state=GameState.createInitialState(BB20_CONFIG);state.season.name="Big Brother 20 — Custom Demo";state.houseguests.forEach((h,i)=>{[h.firstName,h.lastName]=demoNames[i];h.displayName=h.firstName;h.gender=demoGenders[i];h.ratings.general=45+(i*7)%45;h.ratings.physical=40+(i*11)%55;h.ratings.mental=42+(i*13)%53;h.ratings.social=45+(i*9)%50;h.ratings.strategic=40+(i*17)%58;});refreshSetup();toastMsg("Demo cast loaded with balanced genders.");}
   function refreshSetupPortrait(h){const card=castGrid.querySelector(`.cast-card input[data-id="${h.id}"]`)?.closest('.cast-card');const box=card?.querySelector('.setup-portrait');if(box)box.innerHTML=portrait(h,"setup-img");const tools=card?.querySelector('.portrait-tools');if(tools)tools.innerHTML=`${h.portraitUrl?`<button type="button" class="clear-portrait" data-clear-portrait="${h.id}">Remove Picture</button>`:""}`;}
   function handleCastEdit(e){
     const el=e.target;
