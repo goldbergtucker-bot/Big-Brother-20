@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/34106470/README.md)
 [README.md](https://github.com/user-attachments/files/34106219/README.md)
 [README.md](https://github.com/user-attachments/files/32445056/README.md)
 # Big Brother 20 — Custom Simulator
@@ -49,3 +50,13 @@ The simulator remains a custom-cast simulator: the real BB20 season is used as t
 - `app.js` — Competition Wins tracker and demo cast gender defaults.
 - `index.html` — fifth Competition Wins tab and updated script cache version.
 - `style.css` — Competition Wins layout and grayscale evicted portraits.
+
+
+## Gameplay consistency fixes (October 2026)
+
+- The four premiere move-in groups are balanced to two men and two women each when the cast contains eight men and eight women; the two preliminary immunity sides are balanced to four men and four women each. Set the Gender field for custom houseguests to enable this balance.
+- H@cker nomination announcements are derived from the final before/after nominee lists, and nominee flags are synchronized with the final list. If no legal replacement exists, the original nominations remain unchanged and the announcement says so.
+- The H@cker-selected Veto player is guaranteed one of the three extra Veto seats without duplicating the HOH or a nominee. If the HOH wins H@cker, the HOH receives only their normal automatic Veto seat.
+- Tie-break events store the HOH voter separately from the nominee evicted by that vote; the display reports the HOH's deciding vote and the displayed tally includes it (for example, 4–3 instead of 3–3).
+- Competition Wins recognizes standard, double-eviction, battle-back, and final-three competition event types.
+- Versioned local script and stylesheet URLs force browsers to load the updated files after deployment.
