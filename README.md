@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/34106219/README.md)
 [README.md](https://github.com/user-attachments/files/32445056/README.md)
 # Big Brother 20 — Custom Simulator
 
@@ -33,3 +34,18 @@ The simulator remains a custom-cast simulator: the real BB20 season is used as t
 - Fixes v10: H@cker remains an eligible eviction voter in Weeks 6-7; the Hacker only nullifies one other legal vote.
 - Fixes v10: nomination event data is rebuilt after defensive ally replacement so the displayed nominee names cannot disagree with the actual nominee IDs.
 - Fixes v10: backdoor planning is now reachable when the initial nominees are pawns/high-bond players, with a controlled probability rather than every HOH using a backdoor.
+
+
+## Gameplay/UI Fixes — October 2026
+- Opening move-in groups are balanced to 2 men and 2 women each when the cast has eight men and eight women. The two preliminary immunity sides are balanced to 4 men and 4 women each. The demo cast now pre-populates the real BB20 gender split.
+- Identity Theft now preserves the HOH's separate strategic target across a nomination hijack. If the HOH's original target is a trusted ally, the HOH selects a different plausible target rather than treating an ally put up by Identity Theft as their intended target. The nomination event explicitly explains that the initial nominations were replaced.
+- H@cker is allowed to win even if the winner is the HOH. The HOH is never selected as an extra Veto player because they already receive a Veto seat. Fixed the H@cker event message so it reports an actual nominee replacement instead of incorrectly saying nominations were unchanged.
+- When H@cker replaces a nominee with a trusted ally of the HOH, the HOH receives a modest, temporary Veto-performance motivation boost (not a guaranteed win) and, if the HOH wins Veto, will use it to save that ally. The boost is restored immediately after the competition.
+- HOH tie-break votes are counted in the displayed final tally (for example, a 3–3 tie becomes 4–3), and the tie-break decision uses the relationship/target strategy logic.
+- Added a fifth **Competition Wins** tab showing each Houseguest's total and category breakdown (HOH, POV, H@cker, immunity, battle-back and final HOH). Evicted Houseguests remain visible with grayscale portraits. The tracker follows the current event reveal pointer to avoid showing unrevealed results.
+
+### Files changed for these fixes
+- `engine/season-engine.js` — balanced groups, Identity Theft strategy, H@cker legality/reporting, Veto ally-protection behavior, and tie-break tally.
+- `app.js` — Competition Wins tracker and demo cast gender defaults.
+- `index.html` — fifth Competition Wins tab and updated script cache version.
+- `style.css` — Competition Wins layout and grayscale evicted portraits.
