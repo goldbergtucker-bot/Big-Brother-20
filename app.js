@@ -115,12 +115,11 @@
   }
 
   function liveFeedCard(entry) {
-    const d=entry.data||{}, items=d.feedItems||[], context=d.contextNotes||[];
+    const d=entry.data||{}, items=d.feedItems||[];
     const participantIds=[...new Set(items.flatMap(x=>x.participants||[]))];
     const pics=participantIds.map(id=>byId(entry.snapshot,id)).filter(Boolean);
     return `<section class="daily-feed-page">
       <div class="daily-feed-header"><div><span>BIG BROTHER LIVE FEEDS</span><h3>${esc(d.day||entry.day||"")}</h3><p>Week ${esc(entry.week)} · Complete daily feed</p></div><div class="feed-count">${items.length}<small>updates</small></div></div>
-      ${context.length?`<details class="feed-context"><summary>Story context used for this day's feeds</summary>${context.map(c=>`<p><strong>${esc(c.label)}:</strong> ${esc(c.text)}</p>`).join("")}</details>`:""}
       <div class="daily-feed-cast">${pics.slice(0,12).map(p=>`<div class="daily-feed-person">${portrait(p,"daily-feed-portrait")}<span>${esc(displayName(p))}</span></div>`).join("")}</div>
       <div class="daily-feed-updates">${items.map(x=>`<article class="feed-update ${x.kind==='feed-break'?'feed-break':''}"><time>${esc(x.time)}</time><div><p>${esc(displayText(x.text))}</p>${(x.participants||[]).length?`<small>${(x.participants||[]).map(id=>byId(entry.snapshot,id)).filter(Boolean).map(p=>esc(displayName(p))).join(" · ")}</small>`:""}</div></article>`).join("")}</div>
     </section>`;
