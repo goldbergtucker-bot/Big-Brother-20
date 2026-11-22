@@ -1,3 +1,4 @@
+[README.md](https://github.com/user-attachments/files/35225323/README.md)
 [README.md](https://github.com/user-attachments/files/34106470/README.md)
 [README.md](https://github.com/user-attachments/files/34106219/README.md)
 [README.md](https://github.com/user-attachments/files/32445056/README.md)
@@ -60,3 +61,13 @@ The simulator remains a custom-cast simulator: the real BB20 season is used as t
 - Tie-break events store the HOH voter separately from the nominee evicted by that vote; the display reports the HOH's deciding vote and the displayed tally includes it (for example, 4–3 instead of 3–3).
 - Competition Wins recognizes standard, double-eviction, battle-back, and final-three competition event types.
 - Versioned local script and stylesheet URLs force browsers to load the updated files after deployment.
+
+
+## Live Feed Dialogue Fix — November 21, 2026
+- Replaced generic live-feed narration with timestamped scenes containing houseguest dialogue and observable activity.
+- Removed generated summary language such as "the house is reacting," "the nomination picture," and collective descriptions of what several houseguests supposedly discussed.
+- Removed automatic narration of secret Cloud / Identity Theft usage and stored game-incident summaries.
+- Removed raw feed-prompt/context text from the live-feed display so prompt instructions cannot appear as feed content.
+- Added camera-talk scenes and varied group conversations, alongside one-on-one interactions.
+- Preserved the Thursday-to-Thursday feed chronology and kept the live-feed layer separate from game outcomes.
+- Added line-break formatting so dialogue is displayed as separate speaker turns.
